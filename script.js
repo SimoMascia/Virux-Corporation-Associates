@@ -1,8 +1,8 @@
 // ======================== CONFIGURAZIONE ========================
 // Sostituisci con i tuoi dati da JSONbin.io
-const BIN_ID = "IL_TUO_BIN_ID";                      // ID del Bin pubblico
-const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";       // Chiave pubblica per lettura
-const SECRET_KEY = "LA_TUA_CHIAVE_SEGRETA_SCRITTURA"; // Chiave segreta (solo admin)
+const BIN_ID = "69de75ce856a6821893343d9";                      // ID del Bin pubblico
+const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";       // Chiave pubblica per lettura
+const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi"; // Chiave segreta (solo admin)
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 // ===============================================================
