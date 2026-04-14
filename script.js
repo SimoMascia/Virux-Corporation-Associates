@@ -1,35 +1,30 @@
 // ======================== CONFIGURATION ========================
-const BIN_ID = "69de7e0daaba882197fba9e4";               // Your Bin ID
-const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Your public Master Key
-const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi";   // Your Secret Key (write access)
+const BIN_ID = "69de75ce856a6821893343d9";               // Your Bin ID
+const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";          // Your public Master Key
+const SECRET_KEY = "LA_TUA_CHIAVE_SEGRETA_SCRITTURA";   // Your Secret Key (write access)
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-// ===============================================================
 
-// Data structure:
-// zones: [
-//   {
-//     name: "Zone A",
-//     rooms: [
-//       {
-//         name: "Room 1",
-//         doors: [{ id: "D1", locked: false }],
-//         computers: [{ id: "PC1", anomalous: false }]
-//       }
-//     ]
-//   }
-// ]
+// Access passwords
+const VIEWER_PASSWORD = "VC&A-VIEWER";   // For read-only access
+const ADMIN_PASSWORD = "VC&A-LEVEL4";    // For admin modifications
+// ===============================================================
 
 const AppState = {
     zones: [],
-    isAdmin: false,
-    currentView: 'zones',      // 'zones', 'rooms', 'doors', 'computers'
+    isLoggedIn: false,          // First level: can view data
+    isAdmin: false,             // Second level: can edit
+    currentView: 'zones',
     currentZoneIndex: -1,
-    currentRoomIndex: -1,
-    navigationStack: []
+    currentRoomIndex: -1
 };
 
 // DOM Elements
+const initialOverlay = document.getElementById('initial-login-overlay');
+const mainContainer = document.getElementById('main-container');
+const initialPasswordInput = document.getElementById('initial-password-input');
+const initialLoginBtn = document.getElementById('initial-login-btn');
+const initialLoginError = document.getElementById('initial-login-error');
 const contentArea = document.getElementById('content-area');
 const breadcrumbSpan = document.getElementById('zone-title');
 const backBtn = document.getElementById('back-btn');
@@ -47,31 +42,54 @@ const loginError = document.getElementById('login-error');
 document.addEventListener('DOMContentLoaded', () => {
     updateClock();
     setInterval(updateClock, 1000);
-    loadDataFromAPI();
     setupEventListeners();
 });
 
 function updateClock() {
     const now = new Date();
-    document.getElementById('system-time').textContent = now.toLocaleTimeString('en-GB');
+    const timeElement = document.getElementById('system-time');
+    if (timeElement) timeElement.textContent = now.toLocaleTimeString('en-GB');
 }
 
 function setupEventListeners() {
+    // Initial login
+    initialLoginBtn.addEventListener('click', handleInitialLogin);
+    initialPasswordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleInitialLogin();
+    });
+
+    // Main UI
     backBtn.addEventListener('click', handleBack);
     refreshBtn.addEventListener('click', () => loadDataFromAPI());
     loginBtn.addEventListener('click', openLoginModal);
     logoutAdminBtn.addEventListener('click', logoutAdmin);
     
     document.getElementById('cancel-login').addEventListener('click', closeLoginModal);
-    document.getElementById('confirm-login').addEventListener('click', handleLogin);
+    document.getElementById('confirm-login').addEventListener('click', handleAdminLogin);
     document.getElementById('cancel-add').addEventListener('click', closeAddModal);
     document.getElementById('confirm-add').addEventListener('click', handleAddConfirm);
     
-    passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleLogin(); });
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleAdminLogin(); });
+    }
+}
+
+// ======================== INITIAL LOGIN ========================
+function handleInitialLogin() {
+    const pwd = initialPasswordInput.value.trim();
+    if (pwd === VIEWER_PASSWORD) {
+        AppState.isLoggedIn = true;
+        initialOverlay.style.display = 'none';
+        mainContainer.style.display = 'flex';
+        loadDataFromAPI();
+    } else {
+        initialLoginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
+    }
 }
 
 // ======================== API ========================
 async function loadDataFromAPI() {
+    if (!AppState.isLoggedIn) return;
     try {
         statusMsg.innerHTML = '● SYNCING...';
         const response = await fetch(READ_URL, { headers: { 'X-Master-Key': MASTER_KEY } });
@@ -91,7 +109,10 @@ async function loadDataFromAPI() {
 }
 
 async function saveDataToAPI() {
-    if (!AppState.isAdmin) { alert("Insufficient permissions."); return; }
+    if (!AppState.isLoggedIn || !AppState.isAdmin) {
+        alert("Insufficient permissions.");
+        return;
+    }
     try {
         statusMsg.innerHTML = '● SAVING...';
         const response = await fetch(UPDATE_URL, {
@@ -116,6 +137,7 @@ async function saveDataToAPI() {
 
 // ======================== RENDERING ========================
 function renderCurrentView() {
+    if (!AppState.isLoggedIn) return;
     if (AppState.currentView === 'zones') {
         renderZonesView();
         breadcrumbSpan.textContent = 'ALL ZONES';
@@ -184,12 +206,23 @@ function renderRoomsView() {
     html += '<div class="zone-grid">';
     zone.rooms.forEach((room, idx) => {
         const hasAnomaly = room.computers.some(c => c.anomalous);
+        // Build computer status summary
+        let compSummary = '';
+        if (room.computers.length > 0) {
+            const compList = room.computers.map(c => 
+                `<span style="color:${c.anomalous ? '#e74c3c' : '#2ecc71'};">${c.id}: ${c.anomalous ? 'ANOM' : 'CLEAN'}</span>`
+            ).join(' · ');
+            compSummary = `<div class="zone-stats" style="margin-top:8px; font-size:0.75rem;">${compList}</div>`;
+        } else {
+            compSummary = `<div class="zone-stats" style="margin-top:8px;">No computers</div>`;
+        }
         html += `
             <div class="zone-card ${hasAnomaly ? 'anomaly-warning' : ''}" data-room-index="${idx}">
                 <h3>${room.name}</h3>
                 <div class="zone-stats">
-                    🚪 ${room.doors.length} doors &nbsp;|&nbsp; 💻 ${room.computers.length} computers
+                    🚪 ${room.doors.length} doors
                 </div>
+                ${compSummary}
             </div>
         `;
     });
@@ -280,7 +313,7 @@ function openZone(index) {
 
 function openRoom(index) {
     AppState.currentRoomIndex = index;
-    AppState.currentView = 'doors'; // default shows doors
+    AppState.currentView = 'doors';
     renderCurrentView();
 }
 
@@ -293,11 +326,9 @@ function switchRoomView(view) {
 
 function handleBack() {
     if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
-        // Back to room list of current zone
         AppState.currentView = 'rooms';
         AppState.currentRoomIndex = -1;
     } else if (AppState.currentView === 'rooms') {
-        // Back to zone list
         AppState.currentView = 'zones';
         AppState.currentZoneIndex = -1;
     }
@@ -355,7 +386,7 @@ function attachComputerEvents() {
     document.getElementById('add-computer-btn')?.addEventListener('click', () => openAddModal('computer'));
 }
 
-// ======================== LOGIN / LOGOUT ========================
+// ======================== ADMIN LOGIN ========================
 function openLoginModal() {
     loginModal.classList.remove('hidden');
     passwordInput.value = '';
@@ -363,8 +394,9 @@ function openLoginModal() {
     passwordInput.focus();
 }
 function closeLoginModal() { loginModal.classList.add('hidden'); }
-function handleLogin() {
-    if (passwordInput.value.trim() === 'VC&A-ANTIVIRUS-416') {
+function handleAdminLogin() {
+    const pwd = passwordInput.value.trim();
+    if (pwd === ADMIN_PASSWORD) {
         AppState.isAdmin = true;
         closeLoginModal();
         updateAdminPanel();
@@ -414,7 +446,6 @@ function updateAdminPanel() {
     
     adminActions.innerHTML = actionsHtml;
     
-    // Attach events
     document.getElementById('admin-add-zone')?.addEventListener('click', ()=>openAddModal('zone'));
     document.getElementById('admin-add-room')?.addEventListener('click', ()=>openAddModal('room'));
     document.getElementById('admin-add-door')?.addEventListener('click', ()=>openAddModal('door'));
