@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -24,16 +24,16 @@
 
         <main>
             <div id="breadcrumb" class="breadcrumb">
-                <span id="zone-title">TUTTE LE ZONE</span>
+                <span id="zone-title">ALL ZONES</span>
             </div>
 
             <div id="content-area" class="content-panel">
-                <!-- Contenuto dinamico -->
+                <!-- Dynamic content -->
             </div>
 
             <div id="admin-panel" class="admin-panel hidden">
                 <div class="admin-header">
-                    <span>⚙️ MODALITÀ AMMINISTRATORE</span>
+                    <span>⚙️ ADMINISTRATOR MODE</span>
                     <button id="logout-admin" class="btn-logout">LOGOUT</button>
                 </div>
                 <div id="admin-actions" class="admin-actions"></div>
@@ -42,40 +42,40 @@
 
         <footer>
             <div class="footer-left">
-                <button id="back-btn" class="btn" disabled>← INDIETRO</button>
-                <button id="refresh-btn" class="btn">⟲ AGGIORNA</button>
+                <button id="back-btn" class="btn" disabled>← BACK</button>
+                <button id="refresh-btn" class="btn">⟲ REFRESH</button>
             </div>
             <div class="footer-center">
-                <span id="status-message">● CONNESSO AL DATABASE</span>
+                <span id="status-message">● CONNECTED TO DATABASE</span>
             </div>
             <div class="footer-right">
-                <button id="login-btn" class="btn">🔒 LOGIN ADMIN</button>
+                <button id="login-btn" class="btn">🔒 ADMIN LOGIN</button>
             </div>
         </footer>
     </div>
 
-    <!-- Modal Login -->
+    <!-- Login Modal -->
     <div id="login-modal" class="modal hidden">
         <div class="modal-content">
-            <h2>AUTENTICAZIONE RICHIESTA</h2>
-            <p>Livello 4 o superiore</p>
+            <h2>AUTHENTICATION REQUIRED</h2>
+            <p>Level 4 or higher</p>
             <input type="password" id="password-input" placeholder="PASSWORD" autocomplete="off">
             <div class="modal-buttons">
-                <button id="confirm-login" class="btn">ACCEDI</button>
-                <button id="cancel-login" class="btn">ANNULLA</button>
+                <button id="confirm-login" class="btn">LOGIN</button>
+                <button id="cancel-login" class="btn">CANCEL</button>
             </div>
             <div id="login-error" class="error-message"></div>
         </div>
     </div>
 
-    <!-- Modal Aggiunta -->
+    <!-- Add Modal -->
     <div id="add-modal" class="modal hidden">
         <div class="modal-content">
-            <h2 id="modal-title">AGGIUNGI</h2>
+            <h2 id="modal-title">ADD</h2>
             <div id="modal-fields"></div>
             <div class="modal-buttons">
-                <button id="confirm-add" class="btn">CONFERMA</button>
-                <button id="cancel-add" class="btn">ANNULLA</button>
+                <button id="confirm-add" class="btn">CONFIRM</button>
+                <button id="cancel-add" class="btn">CANCEL</button>
             </div>
         </div>
     </div>
