@@ -16,7 +16,8 @@ const AppState = {
     isAdmin: false,
     currentView: 'zones',
     currentZoneIndex: -1,
-    currentRoomIndex: -1
+    currentRoomIndex: -1,
+    showComputersForViewer: false   // <-- NEW: toggle for viewers
 };
 
 // DOM Elements
@@ -148,13 +149,7 @@ function renderCurrentView() {
         renderDoorsView();
         const zone = AppState.zones[AppState.currentZoneIndex];
         const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · DOORS`;
-        backBtn.disabled = false;
-    } else if (AppState.currentView === 'computers' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
-        renderComputersView();
-        const zone = AppState.zones[AppState.currentZoneIndex];
-        const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · COMPUTERS`;
+        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · ${AppState.showComputersForViewer ? 'COMPUTERS' : 'DOORS'}`;
         backBtn.disabled = false;
     }
     updateAdminPanel();
@@ -240,65 +235,93 @@ function renderRoomsView() {
     }
 }
 
-// ======================== VIEW TABS (visible to everyone) ========================
-function renderViewTabs() {
-    const isDoorView = AppState.currentView === 'doors';
-    return `
-        <div class="view-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid var(--border-glow); padding-bottom: 10px;">
-            <button id="tab-doors" class="btn tab-btn ${isDoorView ? 'active-tab' : ''}" style="border-bottom: ${isDoorView ? '3px solid var(--accent-blue)' : 'none'}; background: ${isDoorView ? '#2a4a4a' : '#1a2a2a'};">
-                🚪 DOORS
-            </button>
-            <button id="tab-computers" class="btn tab-btn ${!isDoorView ? 'active-tab' : ''}" style="border-bottom: ${!isDoorView ? '3px solid var(--accent-blue)' : 'none'}; background: ${!isDoorView ? '#2a4a4a' : '#1a2a2a'};">
-                💻 COMPUTERS
-            </button>
-        </div>
-    `;
-}
-
 function renderDoorsView() {
     const zone = AppState.zones[AppState.currentZoneIndex];
     const room = zone.rooms[AppState.currentRoomIndex];
     
-    let html = renderViewTabs(); // <-- Tabs visibili a tutti!
+    let html = '';
     
-    html += `<ul class="items-list">`;
-    room.doors.forEach((door, idx) => {
+    // Toggle button for viewers (only if not admin)
+    if (!AppState.isAdmin) {
         html += `
-            <li class="item-row door">
-                <span class="item-icon">🚪</span>
-                <div class="item-info">
-                    <div class="item-id">${door.id}</div>
-                    <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
-                        ${door.locked ? 'LOCKED' : 'UNLOCKED'}
-                    </div>
-                </div>
-                ${AppState.isAdmin ? `
-                <div class="item-actions">
-                    <button class="btn btn-small toggle-lock" data-idx="${idx}">🔓/🔒</button>
-                    <button class="btn btn-small btn-danger delete-door" data-idx="${idx}">🗑️</button>
-                </div>` : ''}
-            </li>
+            <div style="margin-bottom:20px;">
+                <button id="toggle-viewer-view" class="btn">
+                    ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
+                </button>
+            </div>
         `;
-    });
-    html += '</ul>';
+    }
+    
+    if (AppState.showComputersForViewer && !AppState.isAdmin) {
+        // Viewer wants to see computers
+        html += `<ul class="items-list">`;
+        room.computers.forEach((comp, idx) => {
+            html += `
+                <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}">
+                    <span class="item-icon">💻</span>
+                    <div class="item-info">
+                        <div class="item-id">${comp.id}</div>
+                        <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
+                            ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
+                        </div>
+                    </div>
+                </li>
+            `;
+        });
+        html += '</ul>';
+    } else {
+        // Show doors (default for both admin and viewer)
+        html += `<ul class="items-list">`;
+        room.doors.forEach((door, idx) => {
+            html += `
+                <li class="item-row door">
+                    <span class="item-icon">🚪</span>
+                    <div class="item-info">
+                        <div class="item-id">${door.id}</div>
+                        <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
+                            ${door.locked ? 'LOCKED' : 'UNLOCKED'}
+                        </div>
+                    </div>
+                    ${AppState.isAdmin ? `
+                    <div class="item-actions">
+                        <button class="btn btn-small toggle-lock" data-idx="${idx}">🔓/🔒</button>
+                        <button class="btn btn-small btn-danger delete-door" data-idx="${idx}">🗑️</button>
+                    </div>` : ''}
+                </li>
+            `;
+        });
+        html += '</ul>';
+    }
+    
     if (AppState.isAdmin) {
         html += `<div style="margin-top:20px;"><button id="add-door-btn" class="btn">➕ ADD DOOR</button></div>`;
+        html += `<div style="margin-top:10px;"><button id="view-computers-admin-btn" class="btn">💻 MANAGE COMPUTERS</button></div>`;
     }
+    
     contentArea.innerHTML = html;
     
-    // Attach tab events
-    document.getElementById('tab-doors')?.addEventListener('click', () => switchRoomView('doors'));
-    document.getElementById('tab-computers')?.addEventListener('click', () => switchRoomView('computers'));
-    
-    attachDoorEvents();
+    // Attach events
+    if (!AppState.isAdmin) {
+        document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
+            AppState.showComputersForViewer = !AppState.showComputersForViewer;
+            renderCurrentView();
+        });
+    } else {
+        attachDoorEvents();
+        document.getElementById('view-computers-admin-btn')?.addEventListener('click', () => {
+            // Admin can switch to computers view (a separate full view)
+            AppState.currentView = 'computers';
+            renderComputersView();
+        });
+    }
 }
 
 function renderComputersView() {
+    // Dedicated computers view for admin (with edit buttons)
     const zone = AppState.zones[AppState.currentZoneIndex];
     const room = zone.rooms[AppState.currentRoomIndex];
     
-    let html = renderViewTabs(); // <-- Tabs visibili a tutti!
-    
+    let html = `<div style="margin-bottom:20px;"><button id="back-to-doors-btn" class="btn">← BACK TO DOORS</button></div>`;
     html += `<ul class="items-list">`;
     room.computers.forEach((comp, idx) => {
         html += `
@@ -310,24 +333,22 @@ function renderComputersView() {
                         ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
                     </div>
                 </div>
-                ${AppState.isAdmin ? `
                 <div class="item-actions">
                     <button class="btn btn-small toggle-anomaly" data-idx="${idx}">⚠️/✅</button>
                     <button class="btn btn-small btn-danger delete-comp" data-idx="${idx}">🗑️</button>
-                </div>` : ''}
+                </div>
             </li>
         `;
     });
     html += '</ul>';
-    if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px;"><button id="add-computer-btn" class="btn">➕ ADD COMPUTER</button></div>`;
-    }
+    html += `<div style="margin-top:20px;"><button id="add-computer-btn" class="btn">➕ ADD COMPUTER</button></div>`;
+    
     contentArea.innerHTML = html;
     
-    // Attach tab events
-    document.getElementById('tab-doors')?.addEventListener('click', () => switchRoomView('doors'));
-    document.getElementById('tab-computers')?.addEventListener('click', () => switchRoomView('computers'));
-    
+    document.getElementById('back-to-doors-btn')?.addEventListener('click', () => {
+        AppState.currentView = 'doors';
+        renderCurrentView();
+    });
     attachComputerEvents();
 }
 
@@ -336,26 +357,22 @@ function openZone(index) {
     AppState.currentZoneIndex = index;
     AppState.currentRoomIndex = -1;
     AppState.currentView = 'rooms';
+    AppState.showComputersForViewer = false;
     renderCurrentView();
 }
 
 function openRoom(index) {
     AppState.currentRoomIndex = index;
-    AppState.currentView = 'doors'; // Default view when entering a room
+    AppState.currentView = 'doors';
+    AppState.showComputersForViewer = false;
     renderCurrentView();
-}
-
-function switchRoomView(view) {
-    if (AppState.currentRoomIndex !== -1) {
-        AppState.currentView = view;
-        renderCurrentView();
-    }
 }
 
 function handleBack() {
     if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
         AppState.currentView = 'rooms';
         AppState.currentRoomIndex = -1;
+        AppState.showComputersForViewer = false;
     } else if (AppState.currentView === 'rooms') {
         AppState.currentView = 'zones';
         AppState.currentZoneIndex = -1;
@@ -457,12 +474,14 @@ function updateAdminPanel() {
             <button id="admin-add-room" class="btn">➕ NEW ROOM</button>
             <button id="admin-delete-zone" class="btn btn-danger">🗑️ DELETE ZONE</button>
         `;
-    } else if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
-        // Admin actions for room level (add door/computer, delete room)
+    } else if (AppState.currentView === 'doors') {
         actionsHtml = `
-            ${AppState.currentView === 'doors' ? 
-                '<button id="admin-add-door" class="btn">➕ NEW DOOR</button>' : 
-                '<button id="admin-add-computer" class="btn">➕ NEW COMPUTER</button>'}
+            <button id="admin-add-door" class="btn">➕ NEW DOOR</button>
+            <button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ DELETE ROOM</button>
+        `;
+    } else if (AppState.currentView === 'computers') {
+        actionsHtml = `
+            <button id="admin-add-computer" class="btn">➕ NEW COMPUTER</button>
             <button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ DELETE ROOM</button>
         `;
     }
