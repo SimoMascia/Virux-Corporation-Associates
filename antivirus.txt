@@ -1,1 +1,11 @@
-nothing yet
+ZONE Security Zone
+ROOM Main Control
+DOOR D-01 1
+COMPUTER C-01 0
+COMPUTER C-02 1
+ENDROOM
+ROOM Surveillance
+DOOR D-02 0
+COMPUTER C-03 1
+ENDROOM
+ENDZONE
