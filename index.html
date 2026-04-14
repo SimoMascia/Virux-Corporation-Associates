@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>VC&A Antivirus · SCP Foundation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="overlay-noise"></div>
+    <div class="scan-line"></div>
+
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-left">
+                <span class="logo">SCP FOUNDATION</span>
+                <span class="badge">IT DEPT · VC&A ANTIVIRUS</span>
+            </div>
+            <div class="header-right">
+                <span id="system-time">--:--:--</span>
+                <span class="blink">● SYS.ON</span>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <main>
+            <!-- Titolo zona attuale (breadcrumb) -->
+            <div id="breadcrumb" class="breadcrumb">
+                <span id="zone-title">TUTTE LE ZONE</span>
+            </div>
+
+            <!-- Area contenuto dinamico -->
+            <div id="content-area" class="content-panel">
+                <!-- Qui verrà iniettata la vista Zone, Doors o Computers -->
+            </div>
+
+            <!-- Pannello Admin (nascosto di default) -->
+            <div id="admin-panel" class="admin-panel hidden">
+                <div class="admin-header">
+                    <span>⚙️ MODALITÀ AMMINISTRATORE</span>
+                    <button id="logout-admin" class="btn-logout">LOGOUT</button>
+                </div>
+                <div id="admin-actions" class="admin-actions">
+                    <!-- I pulsanti admin appaiono qui dinamicamente -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer con comandi globali e login -->
+        <footer>
+            <div class="footer-left">
+                <button id="back-btn" class="btn" disabled>← INDIETRO</button>
+                <button id="refresh-btn" class="btn">⟲ AGGIORNA</button>
+            </div>
+            <div class="footer-center">
+                <span id="status-message">● CONNESSO AL DATABASE</span>
+            </div>
+            <div class="footer-right">
+                <button id="login-btn" class="btn">🔒 LOGIN ADMIN</button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Modal per Login -->
+    <div id="login-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>AUTENTICAZIONE RICHIESTA</h2>
+            <p>Livello 4 o superiore</p>
+            <input type="password" id="password-input" placeholder="PASSWORD" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="confirm-login" class="btn">ACCEDI</button>
+                <button id="cancel-login" class="btn">ANNULLA</button>
+            </div>
+            <div id="login-error" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Modal per Aggiunta (Zone, Door, Computer) -->
+    <div id="add-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">AGGIUNGI</h2>
+            <div id="modal-fields"></div>
+            <div class="modal-buttons">
+                <button id="confirm-add" class="btn">CONFERMA</button>
+                <button id="cancel-add" class="btn">ANNULLA</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
