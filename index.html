@@ -10,7 +10,20 @@
     <div class="overlay-noise"></div>
     <div class="scan-line"></div>
 
-    <div class="container">
+    <!-- Initial Login Overlay -->
+    <div id="initial-login-overlay" class="modal">
+        <div class="modal-content">
+            <h2>VC&A ANTIVIRUS SYSTEM</h2>
+            <p>Restricted Access · Level 2+</p>
+            <input type="password" id="initial-password-input" class="modal-field" placeholder="PASSWORD" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="initial-login-btn" class="btn">ACCESS</button>
+            </div>
+            <div id="initial-login-error" class="error-message"></div>
+        </div>
+    </div>
+
+    <div class="container" id="main-container" style="display: none;">
         <header>
             <div class="header-left">
                 <span class="logo">SCP FOUNDATION</span>
@@ -54,10 +67,10 @@
         </footer>
     </div>
 
-    <!-- Login Modal -->
+    <!-- Admin Login Modal -->
     <div id="login-modal" class="modal hidden">
         <div class="modal-content">
-            <h2>AUTHENTICATION REQUIRED</h2>
+            <h2>ADMIN AUTHENTICATION</h2>
             <p>Level 4 or higher</p>
             <input type="password" id="password-input" placeholder="PASSWORD" autocomplete="off">
             <div class="modal-buttons">
