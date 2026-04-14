@@ -1,7 +1,7 @@
 // ======================== CONFIGURAZIONE ========================
-const BIN_ID = "69de75ce856a6821893343d9";               // Il tuo Bin ID
-const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";          // Inserisci la tua Master Key pubblica
-const SECRET_KEY = "LA_TUA_CHIAVE_SEGRETA_SCRITTURA";   // Inserisci la tua Secret Key
+const BIN_ID = "69de7e0daaba882197fba9e4";               // Il tuo Bin ID
+const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Inserisci la tua Master Key pubblica
+const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi";   // Inserisci la tua Secret Key
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 // ===============================================================
