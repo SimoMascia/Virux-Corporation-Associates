@@ -1,19 +1,19 @@
 // ======================== CONFIGURAZIONE ========================
 // Sostituisci con i tuoi dati da JSONbin.io
-const BIN_ID = "69de75ce856a6821893343d9";                      // ID del Bin pubblico
-const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";       // Chiave pubblica per lettura
-const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi"; // Chiave segreta (solo admin)
+const BIN_ID = "69de75ce856a6821893343d9";               // Il tuo Bin ID
+const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";          // Inserisci la tua Master Key pubblica
+const SECRET_KEY = "LA_TUA_CHIAVE_SEGRETA_SCRITTURA";   // Inserisci la tua Secret Key
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 // ===============================================================
 
 // Stato globale dell'applicazione
 const AppState = {
-    zones: [],                  // Array di Zone { name, doors, computers }
-    isAdmin: false,            // Modalità admin attiva?
+    zones: [],
+    isAdmin: false,
     currentView: 'zones',      // 'zones', 'doors', 'computers'
-    currentZoneIndex: -1,      // Indice della zona selezionata
-    navigationStack: []        // Per gestire il "back"
+    currentZoneIndex: -1,
+    navigationStack: []
 };
 
 // Elementi DOM frequenti
@@ -39,13 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
-// Orologio
 function updateClock() {
     const now = new Date();
     document.getElementById('system-time').textContent = now.toLocaleTimeString('it-IT');
 }
 
-// Event Listeners
 function setupEventListeners() {
     backBtn.addEventListener('click', handleBack);
     refreshBtn.addEventListener('click', () => loadDataFromAPI());
@@ -75,7 +73,6 @@ async function loadDataFromAPI() {
     } catch (error) {
         console.error(error);
         statusMsg.innerHTML = '● ERRORE CONNESSIONE';
-        // Dati di fallback
         if (AppState.zones.length === 0) {
             AppState.zones = [{ name: "Zona di Test", doors: [], computers: [] }];
             renderCurrentView();
@@ -102,7 +99,7 @@ async function saveDataToAPI() {
         });
         if (!response.ok) throw new Error('Salvataggio fallito');
         statusMsg.innerHTML = '● DATI SALVATI';
-        await loadDataFromAPI(); // Ricarica per sicurezza
+        await loadDataFromAPI();
     } catch (error) {
         console.error(error);
         statusMsg.innerHTML = '● ERRORE SALVATAGGIO';
@@ -222,8 +219,15 @@ function renderComputersView() {
 // ======================== INTERAZIONI ========================
 function openZoneMenu(index) {
     AppState.currentZoneIndex = index;
-    AppState.currentView = 'doors'; // Default mostriamo porte
+    AppState.currentView = 'doors'; // Apre prima le porte
     renderCurrentView();
+}
+
+function switchZoneView(view) {
+    if (AppState.currentZoneIndex !== -1) {
+        AppState.currentView = view;
+        renderCurrentView();
+    }
 }
 
 function handleBack() {
@@ -300,12 +304,11 @@ function closeLoginModal() {
 
 function handleLogin() {
     const pwd = passwordInput.value.trim();
-    // Password fissa come nel C++: "VC&A-LEVEL4"
     if (pwd === 'VC&A-LEVEL4') {
         AppState.isAdmin = true;
         closeLoginModal();
         updateAdminPanel();
-        renderCurrentView(); // Ricarica per mostrare pulsanti admin
+        renderCurrentView();
         statusMsg.innerHTML = '● MODALITÀ AMMINISTRATORE ATTIVA';
     } else {
         loginError.textContent = 'ACCESSO NEGATO: CREDENZIALI ERRATE';
@@ -316,7 +319,6 @@ function logoutAdmin() {
     AppState.isAdmin = false;
     updateAdminPanel();
     if (AppState.currentView !== 'zones') {
-        // Torna a zone per sicurezza
         AppState.currentView = 'zones';
         AppState.currentZoneIndex = -1;
     }
@@ -328,19 +330,32 @@ function updateAdminPanel() {
     if (AppState.isAdmin) {
         adminPanel.classList.remove('hidden');
         let actionsHtml = '';
+        
         if (AppState.currentView === 'zones') {
             actionsHtml = `<button id="admin-add-zone" class="btn">➕ NUOVA ZONA</button>`;
-        } else if (AppState.currentView === 'doors') {
-            actionsHtml = `<button id="admin-add-door" class="btn">➕ NUOVA PORTA</button>`;
-        } else if (AppState.currentView === 'computers') {
-            actionsHtml = `<button id="admin-add-computer" class="btn">➕ NUOVO COMPUTER</button>`;
+        } else if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
+            // Aggiungiamo le schede per passare da porte a computer
+            actionsHtml = `
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <button id="view-doors-btn" class="btn" ${AppState.currentView === 'doors' ? 'style="background:#2a4a4a;"' : ''}>🚪 PORTE</button>
+                    <button id="view-computers-btn" class="btn" ${AppState.currentView === 'computers' ? 'style="background:#2a4a4a;"' : ''}>💻 COMPUTER</button>
+                </div>
+            `;
+            if (AppState.currentView === 'doors') {
+                actionsHtml += `<button id="admin-add-door" class="btn">➕ NUOVA PORTA</button>`;
+            } else {
+                actionsHtml += `<button id="admin-add-computer" class="btn">➕ NUOVO COMPUTER</button>`;
+            }
         }
-        // Aggiungi anche opzione per eliminare zona corrente
+        
         if (AppState.currentZoneIndex !== -1) {
-            actionsHtml += `<button id="admin-delete-zone" class="btn btn-danger">🗑️ ELIMINA ZONA</button>`;
+            actionsHtml += `<button id="admin-delete-zone" class="btn btn-danger" style="margin-left:10px;">🗑️ ELIMINA ZONA</button>`;
         }
         adminActions.innerHTML = actionsHtml;
-        // Attacca eventi
+        
+        // Attacca eventi ai pulsanti delle schede
+        document.getElementById('view-doors-btn')?.addEventListener('click', () => switchZoneView('doors'));
+        document.getElementById('view-computers-btn')?.addEventListener('click', () => switchZoneView('computers'));
         document.getElementById('admin-add-zone')?.addEventListener('click', ()=>openAddModal('zone'));
         document.getElementById('admin-add-door')?.addEventListener('click', ()=>openAddModal('door'));
         document.getElementById('admin-add-computer')?.addEventListener('click', ()=>openAddModal('computer'));
@@ -359,7 +374,7 @@ function updateAdminPanel() {
 }
 
 // ======================== MODALE AGGIUNTA ========================
-let currentAddType = null; // 'zone', 'door', 'computer'
+let currentAddType = null;
 
 function openAddModal(type) {
     currentAddType = type;
@@ -387,7 +402,6 @@ function openAddModal(type) {
         `;
     }
     addModal.classList.remove('hidden');
-    // Focus primo input
     setTimeout(() => fieldsDiv.querySelector('input')?.focus(), 100);
 }
 
