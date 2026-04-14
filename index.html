@@ -11,7 +11,6 @@
     <div class="scan-line"></div>
 
     <div class="container">
-        <!-- Header -->
         <header>
             <div class="header-left">
                 <span class="logo">SCP FOUNDATION</span>
@@ -23,31 +22,24 @@
             </div>
         </header>
 
-        <!-- Main Dashboard -->
         <main>
-            <!-- Titolo zona attuale (breadcrumb) -->
             <div id="breadcrumb" class="breadcrumb">
                 <span id="zone-title">TUTTE LE ZONE</span>
             </div>
 
-            <!-- Area contenuto dinamico -->
             <div id="content-area" class="content-panel">
-                <!-- Qui verrà iniettata la vista Zone, Doors o Computers -->
+                <!-- Contenuto dinamico -->
             </div>
 
-            <!-- Pannello Admin (nascosto di default) -->
             <div id="admin-panel" class="admin-panel hidden">
                 <div class="admin-header">
                     <span>⚙️ MODALITÀ AMMINISTRATORE</span>
                     <button id="logout-admin" class="btn-logout">LOGOUT</button>
                 </div>
-                <div id="admin-actions" class="admin-actions">
-                    <!-- I pulsanti admin appaiono qui dinamicamente -->
-                </div>
+                <div id="admin-actions" class="admin-actions"></div>
             </div>
         </main>
 
-        <!-- Footer con comandi globali e login -->
         <footer>
             <div class="footer-left">
                 <button id="back-btn" class="btn" disabled>← INDIETRO</button>
@@ -62,7 +54,7 @@
         </footer>
     </div>
 
-    <!-- Modal per Login -->
+    <!-- Modal Login -->
     <div id="login-modal" class="modal hidden">
         <div class="modal-content">
             <h2>AUTENTICAZIONE RICHIESTA</h2>
@@ -76,7 +68,7 @@
         </div>
     </div>
 
-    <!-- Modal per Aggiunta (Zone, Door, Computer) -->
+    <!-- Modal Aggiunta -->
     <div id="add-modal" class="modal hidden">
         <div class="modal-content">
             <h2 id="modal-title">AGGIUNGI</h2>
