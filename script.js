@@ -1,18 +1,18 @@
-// ======================== CONFIGURAZIONE ========================
-const BIN_ID = "69de7e0daaba882197fba9e4";               // Il tuo Bin ID
-const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Inserisci la tua Master Key pubblica
-const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi";   // Inserisci la tua Secret Key
+// ======================== CONFIGURATION ========================
+const BIN_ID = "69de7e0daaba882197fba9e4";               // Your Bin ID
+const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Your public Master Key
+const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi";   // Your Secret Key (write access)
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 // ===============================================================
 
-// Struttura dati:
+// Data structure:
 // zones: [
 //   {
-//     name: "Zona A",
+//     name: "Zone A",
 //     rooms: [
 //       {
-//         name: "Stanza 1",
+//         name: "Room 1",
 //         doors: [{ id: "D1", locked: false }],
 //         computers: [{ id: "PC1", anomalous: false }]
 //       }
@@ -29,7 +29,7 @@ const AppState = {
     navigationStack: []
 };
 
-// Elementi DOM
+// DOM Elements
 const contentArea = document.getElementById('content-area');
 const breadcrumbSpan = document.getElementById('zone-title');
 const backBtn = document.getElementById('back-btn');
@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function updateClock() {
     const now = new Date();
-    document.getElementById('system-time').textContent = now.toLocaleTimeString('it-IT');
+    document.getElementById('system-time').textContent = now.toLocaleTimeString('en-GB');
 }
 
 function setupEventListeners() {
@@ -73,27 +73,27 @@ function setupEventListeners() {
 // ======================== API ========================
 async function loadDataFromAPI() {
     try {
-        statusMsg.innerHTML = '● SINCRONIZZAZIONE...';
+        statusMsg.innerHTML = '● SYNCING...';
         const response = await fetch(READ_URL, { headers: { 'X-Master-Key': MASTER_KEY } });
-        if (!response.ok) throw new Error('Errore di rete');
+        if (!response.ok) throw new Error('Network error');
         const data = await response.json();
         AppState.zones = data.record.zones || [];
-        statusMsg.innerHTML = '● CONNESSO';
+        statusMsg.innerHTML = '● CONNECTED';
         renderCurrentView();
     } catch (error) {
         console.error(error);
-        statusMsg.innerHTML = '● ERRORE CONNESSIONE';
+        statusMsg.innerHTML = '● CONNECTION ERROR';
         if (AppState.zones.length === 0) {
-            AppState.zones = [{ name: "Zona di Test", rooms: [] }];
+            AppState.zones = [{ name: "Test Zone", rooms: [] }];
             renderCurrentView();
         }
     }
 }
 
 async function saveDataToAPI() {
-    if (!AppState.isAdmin) { alert("Permessi insufficienti."); return; }
+    if (!AppState.isAdmin) { alert("Insufficient permissions."); return; }
     try {
-        statusMsg.innerHTML = '● SALVATAGGIO...';
+        statusMsg.innerHTML = '● SAVING...';
         const response = await fetch(UPDATE_URL, {
             method: 'PUT',
             headers: {
@@ -104,13 +104,13 @@ async function saveDataToAPI() {
             },
             body: JSON.stringify({ zones: AppState.zones })
         });
-        if (!response.ok) throw new Error('Salvataggio fallito');
-        statusMsg.innerHTML = '● DATI SALVATI';
+        if (!response.ok) throw new Error('Save failed');
+        statusMsg.innerHTML = '● DATA SAVED';
         await loadDataFromAPI();
     } catch (error) {
         console.error(error);
-        statusMsg.innerHTML = '● ERRORE SALVATAGGIO';
-        alert('Impossibile salvare i dati.');
+        statusMsg.innerHTML = '● SAVE ERROR';
+        alert('Unable to save data. Check console.');
     }
 }
 
@@ -118,23 +118,23 @@ async function saveDataToAPI() {
 function renderCurrentView() {
     if (AppState.currentView === 'zones') {
         renderZonesView();
-        breadcrumbSpan.textContent = 'TUTTE LE ZONE';
+        breadcrumbSpan.textContent = 'ALL ZONES';
         backBtn.disabled = true;
     } else if (AppState.currentView === 'rooms' && AppState.currentZoneIndex !== -1) {
         renderRoomsView();
-        breadcrumbSpan.textContent = `${AppState.zones[AppState.currentZoneIndex].name} · STANZE`;
+        breadcrumbSpan.textContent = `${AppState.zones[AppState.currentZoneIndex].name} · ROOMS`;
         backBtn.disabled = false;
     } else if (AppState.currentView === 'doors' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
         renderDoorsView();
         const zone = AppState.zones[AppState.currentZoneIndex];
         const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · PORTE`;
+        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · DOORS`;
         backBtn.disabled = false;
     } else if (AppState.currentView === 'computers' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
         renderComputersView();
         const zone = AppState.zones[AppState.currentZoneIndex];
         const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · COMPUTER`;
+        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · COMPUTERS`;
         backBtn.disabled = false;
     }
     updateAdminPanel();
@@ -155,15 +155,15 @@ function renderZonesView() {
             <div class="zone-card ${anomalyClass}" data-zone-index="${index}">
                 <h3>${zone.name}</h3>
                 <div class="zone-stats">
-                    🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} stanze
-                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALIA RILEVATA</span>' : ''}
+                    🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} rooms
+                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
                 </div>
             </div>
         `;
     });
     html += '</div>';
     if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px; text-align:center;"><button id="add-zone-btn" class="btn">➕ AGGIUNGI ZONA</button></div>`;
+        html += `<div style="margin-top:20px; text-align:center;"><button id="add-zone-btn" class="btn">➕ ADD ZONE</button></div>`;
     }
     contentArea.innerHTML = html;
     
@@ -180,7 +180,7 @@ function renderZonesView() {
 
 function renderRoomsView() {
     const zone = AppState.zones[AppState.currentZoneIndex];
-    let html = `<div style="margin-bottom:15px;"><h2 style="color:#d4ede8;">Stanze di ${zone.name}</h2></div>`;
+    let html = `<div style="margin-bottom:15px;"><h2 style="color:#d4ede8;">Rooms in ${zone.name}</h2></div>`;
     html += '<div class="zone-grid">';
     zone.rooms.forEach((room, idx) => {
         const hasAnomaly = room.computers.some(c => c.anomalous);
@@ -188,14 +188,14 @@ function renderRoomsView() {
             <div class="zone-card ${hasAnomaly ? 'anomaly-warning' : ''}" data-room-index="${idx}">
                 <h3>${room.name}</h3>
                 <div class="zone-stats">
-                    🚪 ${room.doors.length} porte &nbsp;|&nbsp; 💻 ${room.computers.length} computer
+                    🚪 ${room.doors.length} doors &nbsp;|&nbsp; 💻 ${room.computers.length} computers
                 </div>
             </div>
         `;
     });
     html += '</div>';
     if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px; text-align:center;"><button id="add-room-btn" class="btn">➕ AGGIUNGI STANZA</button></div>`;
+        html += `<div style="margin-top:20px; text-align:center;"><button id="add-room-btn" class="btn">➕ ADD ROOM</button></div>`;
     }
     contentArea.innerHTML = html;
     
@@ -221,7 +221,7 @@ function renderDoorsView() {
                 <div class="item-info">
                     <div class="item-id">${door.id}</div>
                     <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
-                        ${door.locked ? 'BLOCCATA' : 'SBLOCCATA'}
+                        ${door.locked ? 'LOCKED' : 'UNLOCKED'}
                     </div>
                 </div>
                 ${AppState.isAdmin ? `
@@ -234,7 +234,7 @@ function renderDoorsView() {
     });
     html += '</ul>';
     if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px;"><button id="add-door-btn" class="btn">➕ AGGIUNGI PORTA</button></div>`;
+        html += `<div style="margin-top:20px;"><button id="add-door-btn" class="btn">➕ ADD DOOR</button></div>`;
     }
     contentArea.innerHTML = html;
     attachDoorEvents();
@@ -251,7 +251,7 @@ function renderComputersView() {
                 <div class="item-info">
                     <div class="item-id">${comp.id}</div>
                     <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
-                        ${comp.anomalous ? 'ANOMALO' : 'PULITO'}
+                        ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
                     </div>
                 </div>
                 ${AppState.isAdmin ? `
@@ -264,13 +264,13 @@ function renderComputersView() {
     });
     html += '</ul>';
     if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px;"><button id="add-computer-btn" class="btn">➕ AGGIUNGI COMPUTER</button></div>`;
+        html += `<div style="margin-top:20px;"><button id="add-computer-btn" class="btn">➕ ADD COMPUTER</button></div>`;
     }
     contentArea.innerHTML = html;
     attachComputerEvents();
 }
 
-// ======================== NAVIGAZIONE ========================
+// ======================== NAVIGATION ========================
 function openZone(index) {
     AppState.currentZoneIndex = index;
     AppState.currentRoomIndex = -1;
@@ -280,7 +280,7 @@ function openZone(index) {
 
 function openRoom(index) {
     AppState.currentRoomIndex = index;
-    AppState.currentView = 'doors'; // default mostra porte
+    AppState.currentView = 'doors'; // default shows doors
     renderCurrentView();
 }
 
@@ -293,18 +293,18 @@ function switchRoomView(view) {
 
 function handleBack() {
     if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
-        // Torna alla lista stanze della zona corrente
+        // Back to room list of current zone
         AppState.currentView = 'rooms';
         AppState.currentRoomIndex = -1;
     } else if (AppState.currentView === 'rooms') {
-        // Torna alla lista zone
+        // Back to zone list
         AppState.currentView = 'zones';
         AppState.currentZoneIndex = -1;
     }
     renderCurrentView();
 }
 
-// ======================== EVENTI ADMIN ========================
+// ======================== ADMIN EVENTS ========================
 function attachDoorEvents() {
     if (!AppState.isAdmin) return;
     const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
@@ -320,7 +320,7 @@ function attachDoorEvents() {
     document.querySelectorAll('.delete-door').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!confirm('Eliminare questa porta?')) return;
+            if (!confirm('Delete this door?')) return;
             const idx = btn.dataset.idx;
             room.doors.splice(idx, 1);
             saveDataToAPI();
@@ -345,7 +345,7 @@ function attachComputerEvents() {
     document.querySelectorAll('.delete-comp').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!confirm('Eliminare questo computer?')) return;
+            if (!confirm('Delete this computer?')) return;
             const idx = btn.dataset.idx;
             room.computers.splice(idx, 1);
             saveDataToAPI();
@@ -364,24 +364,24 @@ function openLoginModal() {
 }
 function closeLoginModal() { loginModal.classList.add('hidden'); }
 function handleLogin() {
-    if (passwordInput.value.trim() === 'VC&A-LEVEL4') {
+    if (passwordInput.value.trim() === 'VC&A-ANTIVIRUS-416') {
         AppState.isAdmin = true;
         closeLoginModal();
         updateAdminPanel();
         renderCurrentView();
-        statusMsg.innerHTML = '● MODALITÀ AMMINISTRATORE ATTIVA';
+        statusMsg.innerHTML = '● ADMINISTRATOR MODE ACTIVE';
     } else {
-        loginError.textContent = 'ACCESSO NEGATO';
+        loginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
     }
 }
 function logoutAdmin() {
     AppState.isAdmin = false;
     updateAdminPanel();
     renderCurrentView();
-    statusMsg.innerHTML = '● CONNESSO';
+    statusMsg.innerHTML = '● CONNECTED';
 }
 
-// ======================== PANNELLO ADMIN ========================
+// ======================== ADMIN PANEL ========================
 function updateAdminPanel() {
     if (!AppState.isAdmin) {
         adminPanel.classList.add('hidden');
@@ -391,30 +391,30 @@ function updateAdminPanel() {
     let actionsHtml = '';
     
     if (AppState.currentView === 'zones') {
-        actionsHtml = `<button id="admin-add-zone" class="btn">➕ NUOVA ZONA</button>`;
+        actionsHtml = `<button id="admin-add-zone" class="btn">➕ NEW ZONE</button>`;
     } else if (AppState.currentView === 'rooms') {
         actionsHtml = `
-            <button id="admin-add-room" class="btn">➕ NUOVA STANZA</button>
-            <button id="admin-delete-zone" class="btn btn-danger">🗑️ ELIMINA ZONA</button>
+            <button id="admin-add-room" class="btn">➕ NEW ROOM</button>
+            <button id="admin-delete-zone" class="btn btn-danger">🗑️ DELETE ZONE</button>
         `;
     } else if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
         actionsHtml = `
             <div style="display:flex; gap:10px; margin-bottom:10px;">
-                <button id="view-doors-btn" class="btn" ${AppState.currentView === 'doors' ? 'style="background:#2a4a4a;"' : ''}>🚪 PORTE</button>
-                <button id="view-computers-btn" class="btn" ${AppState.currentView === 'computers' ? 'style="background:#2a4a4a;"' : ''}>💻 COMPUTER</button>
+                <button id="view-doors-btn" class="btn" ${AppState.currentView === 'doors' ? 'style="background:#2a4a4a;"' : ''}>🚪 DOORS</button>
+                <button id="view-computers-btn" class="btn" ${AppState.currentView === 'computers' ? 'style="background:#2a4a4a;"' : ''}>💻 COMPUTERS</button>
             </div>
         `;
         if (AppState.currentView === 'doors') {
-            actionsHtml += `<button id="admin-add-door" class="btn">➕ NUOVA PORTA</button>`;
+            actionsHtml += `<button id="admin-add-door" class="btn">➕ NEW DOOR</button>`;
         } else {
-            actionsHtml += `<button id="admin-add-computer" class="btn">➕ NUOVO COMPUTER</button>`;
+            actionsHtml += `<button id="admin-add-computer" class="btn">➕ NEW COMPUTER</button>`;
         }
-        actionsHtml += `<button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ ELIMINA STANZA</button>`;
+        actionsHtml += `<button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ DELETE ROOM</button>`;
     }
     
     adminActions.innerHTML = actionsHtml;
     
-    // Attacca eventi
+    // Attach events
     document.getElementById('admin-add-zone')?.addEventListener('click', ()=>openAddModal('zone'));
     document.getElementById('admin-add-room')?.addEventListener('click', ()=>openAddModal('room'));
     document.getElementById('admin-add-door')?.addEventListener('click', ()=>openAddModal('door'));
@@ -423,7 +423,7 @@ function updateAdminPanel() {
     document.getElementById('view-computers-btn')?.addEventListener('click', ()=>switchRoomView('computers'));
     
     document.getElementById('admin-delete-zone')?.addEventListener('click', ()=>{
-        if (confirm(`Eliminare la zona "${AppState.zones[AppState.currentZoneIndex].name}"?`)) {
+        if (confirm(`Delete zone "${AppState.zones[AppState.currentZoneIndex].name}"?`)) {
             AppState.zones.splice(AppState.currentZoneIndex, 1);
             AppState.currentZoneIndex = -1;
             AppState.currentView = 'zones';
@@ -434,7 +434,7 @@ function updateAdminPanel() {
     document.getElementById('admin-delete-room')?.addEventListener('click', ()=>{
         const zone = AppState.zones[AppState.currentZoneIndex];
         const room = zone.rooms[AppState.currentRoomIndex];
-        if (confirm(`Eliminare la stanza "${room.name}"?`)) {
+        if (confirm(`Delete room "${room.name}"?`)) {
             zone.rooms.splice(AppState.currentRoomIndex, 1);
             AppState.currentRoomIndex = -1;
             AppState.currentView = 'rooms';
@@ -444,7 +444,7 @@ function updateAdminPanel() {
     });
 }
 
-// ======================== MODALE AGGIUNTA ========================
+// ======================== ADD MODAL ========================
 let currentAddType = null;
 
 function openAddModal(type) {
@@ -453,25 +453,25 @@ function openAddModal(type) {
     const fieldsDiv = document.getElementById('modal-fields');
     
     if (type === 'zone') {
-        title.textContent = 'AGGIUNGI NUOVA ZONA';
-        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Nome Zona" autocomplete="off">`;
+        title.textContent = 'ADD NEW ZONE';
+        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Zone Name" autocomplete="off">`;
     } else if (type === 'room') {
-        title.textContent = 'AGGIUNGI NUOVA STANZA';
-        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Nome Stanza" autocomplete="off">`;
+        title.textContent = 'ADD NEW ROOM';
+        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Room Name" autocomplete="off">`;
     } else if (type === 'door') {
-        title.textContent = 'AGGIUNGI NUOVA PORTA';
+        title.textContent = 'ADD NEW DOOR';
         fieldsDiv.innerHTML = `
-            <input type="text" id="door-id-input" class="modal-field" placeholder="ID Porta" autocomplete="off">
+            <input type="text" id="door-id-input" class="modal-field" placeholder="Door ID" autocomplete="off">
             <label style="display:flex; align-items:center; gap:10px; margin:10px 0;">
-                <input type="checkbox" id="door-locked-input"> Bloccata?
+                <input type="checkbox" id="door-locked-input"> Locked?
             </label>
         `;
     } else if (type === 'computer') {
-        title.textContent = 'AGGIUNGI NUOVO COMPUTER';
+        title.textContent = 'ADD NEW COMPUTER';
         fieldsDiv.innerHTML = `
-            <input type="text" id="comp-id-input" class="modal-field" placeholder="ID Computer" autocomplete="off">
+            <input type="text" id="comp-id-input" class="modal-field" placeholder="Computer ID" autocomplete="off">
             <label style="display:flex; align-items:center; gap:10px; margin:10px 0;">
-                <input type="checkbox" id="comp-anomalous-input"> Anomalo?
+                <input type="checkbox" id="comp-anomalous-input"> Anomalous?
             </label>
         `;
     }
@@ -489,21 +489,21 @@ function handleAddConfirm() {
     
     if (currentAddType === 'zone') {
         const name = document.getElementById('name-input')?.value.trim();
-        if (!name) { alert('Nome obbligatorio'); return; }
+        if (!name) { alert('Name is required'); return; }
         AppState.zones.push({ name, rooms: [] });
         saveDataToAPI();
         closeAddModal();
         renderCurrentView();
     } else if (currentAddType === 'room' && AppState.currentZoneIndex !== -1) {
         const name = document.getElementById('name-input')?.value.trim();
-        if (!name) { alert('Nome obbligatorio'); return; }
+        if (!name) { alert('Name is required'); return; }
         AppState.zones[AppState.currentZoneIndex].rooms.push({ name, doors: [], computers: [] });
         saveDataToAPI();
         closeAddModal();
         renderCurrentView();
     } else if (currentAddType === 'door' && AppState.currentRoomIndex !== -1) {
         const id = document.getElementById('door-id-input')?.value.trim();
-        if (!id) { alert('ID obbligatorio'); return; }
+        if (!id) { alert('ID is required'); return; }
         const locked = document.getElementById('door-locked-input')?.checked || false;
         const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
         room.doors.push({ id, locked });
@@ -512,7 +512,7 @@ function handleAddConfirm() {
         renderCurrentView();
     } else if (currentAddType === 'computer' && AppState.currentRoomIndex !== -1) {
         const id = document.getElementById('comp-id-input')?.value.trim();
-        if (!id) { alert('ID obbligatorio'); return; }
+        if (!id) { alert('ID is required'); return; }
         const anomalous = document.getElementById('comp-anomalous-input')?.checked || false;
         const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
         room.computers.push({ id, anomalous });
