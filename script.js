@@ -199,22 +199,19 @@ function renderRoomsView() {
     html += '<div class="zone-grid">';
     zone.rooms.forEach((room, idx) => {
         const hasAnomaly = room.computers.some(c => c.anomalous);
-        let compSummary = '';
-        if (room.computers.length > 0) {
-            const compList = room.computers.map(c => 
-                `<span style="color:${c.anomalous ? '#e74c3c' : '#2ecc71'};">${c.id}: ${c.anomalous ? 'ANOM' : 'CLEAN'}</span>`
-            ).join(' · ');
-            compSummary = `<div class="zone-stats" style="margin-top:8px; font-size:0.75rem;">${compList}</div>`;
-        } else {
-            compSummary = `<div class="zone-stats" style="margin-top:8px;">No computers</div>`;
-        }
+        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
+        
+        // Mostra solo conteggi, non dettagli
+        const doorsCount = room.doors.length;
+        const computersCount = room.computers.length;
+        
         html += `
-            <div class="zone-card ${hasAnomaly ? 'anomaly-warning' : ''}" data-room-index="${idx}">
+            <div class="zone-card ${anomalyClass}" data-room-index="${idx}">
                 <h3>${room.name}</h3>
                 <div class="zone-stats">
-                    🚪 ${room.doors.length} doors
+                    🚪 ${doorsCount} door${doorsCount !== 1 ? 's' : ''} &nbsp;|&nbsp; 💻 ${computersCount} computer${computersCount !== 1 ? 's' : ''}
+                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
                 </div>
-                ${compSummary}
             </div>
         `;
     });
