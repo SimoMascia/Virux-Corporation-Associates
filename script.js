@@ -1,525 +1,414 @@
-// ======================== CONFIGURATION ========================
-const BIN_ID = "69df665d36566621a8b694e5";               // Your Bin ID
-const MASTER_KEY = "$2a$10$RvtAYcVttTgFZj1lk9gy7uG4jjzKPztlQOwZ10zcS1eKOb0fACdO2";          // Your public Master Key
-const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
-// ===============================================================
+// ========================
+// PROPDA INSPECTION ASSISTANT
+// Conforme al contratto FAD-VC&A-C-220326
+// ========================
 
-// Access password
-const VIEWER_PASSWORD = "VC&A-VIEWER";
-
-// HCZ/MCZ zone keywords (case-insensitive)
-const HCZ_MCZ_KEYWORDS = ["hcz", "mcz", "heavy containment", "medium containment"];
-
-// Max computers to inspect per HCZ/MCZ entry
-const MAX_COMPUTERS_PER_ENTRY = 2;
-
-const AppState = {
-    zones: [],
-    isLoggedIn: false,
-    currentView: 'zones',
-    currentZoneIndex: -1,
-    currentRoomIndex: -1,
-    showComputersForViewer: false,
-    
-    // Contract compliance
-    hczInspectedComputers: {},      // { zoneName: [computerIds] } per tracciare quali computer sono stati ispezionati in questo ingresso
-    inspectionLog: [],
-    currentSupervisor: null,        // Nome del supervisore attuale
-    supervisionActive: false        // true se la supervisione è stata concessa per la sessione corrente
+// Stato dell'applicazione
+let appState = {
+    session: {
+        zone: null,
+        terminalsInspected: 0,
+    },
+    currentScan: {
+        inProgress: false,
+        result: null,
+        anomalyText: ""
+    },
+    logs: [],          // array di oggetti ispezione
+    jsonBinConfig: {
+        binId: "",
+        apiKey: ""
+    }
 };
 
-// DOM Elements
-const initialOverlay = document.getElementById('initial-login-overlay');
-const mainContainer = document.getElementById('main-container');
-const initialPasswordInput = document.getElementById('initial-password-input');
-const initialLoginBtn = document.getElementById('initial-login-btn');
-const initialLoginError = document.getElementById('initial-login-error');
-const contentArea = document.getElementById('content-area');
-const breadcrumbSpan = document.getElementById('zone-title');
-const backBtn = document.getElementById('back-btn');
-const refreshBtn = document.getElementById('refresh-btn');
-const loginBtn = document.getElementById('login-btn'); // Diventa "Request Supervision"
-const logoutAdminBtn = document.getElementById('logout-admin');
-const adminPanel = document.getElementById('admin-panel');
-const adminActions = document.getElementById('admin-actions');
-const statusMsg = document.getElementById('status-message');
-const loginModal = document.getElementById('login-modal');
-const addModal = document.getElementById('add-modal');
-const passwordInput = document.getElementById('password-input');
-const loginError = document.getElementById('login-error');
+// DOM elements
+const zoneSelect = document.getElementById('zoneSelect');
+const scpInput = document.getElementById('scpId');
+const terminalInput = document.getElementById('terminalId');
+const supervisorInput = document.getElementById('supervisor');
+const scanBtn = document.getElementById('scanBtn');
+const saveBtn = document.getElementById('saveInspectionBtn');
+const resetAccessBtn = document.getElementById('resetAccessBtn');
+const currentZoneSpan = document.getElementById('currentZone');
+const terminalCountSpan = document.getElementById('terminalCount');
+const scanProgressDiv = document.getElementById('scanProgress');
+const resultsArea = document.getElementById('resultsArea');
+const anomalyNoteGroup = document.getElementById('anomalyNoteGroup');
+const anomalyNote = document.getElementById('anomalyNote');
+const logListDiv = document.getElementById('logList');
+const exportLogsBtn = document.getElementById('exportLogsBtn');
+const clearLogsBtn = document.getElementById('clearLogsBtn');
+const syncJsonBinBtn = document.getElementById('syncWithJsonBin');
+const configJsonBinBtn = document.getElementById('configJsonBinBtn');
+const jsonBinStatusSpan = document.getElementById('jsonBinStatus');
+const emergencyBtn = document.getElementById('reportEmergencyBtn');
+const emergencySupervisor = document.getElementById('emergencySupervisor');
+const propClassSelect = document.getElementById('propClass');
+const emergencyProtocolDiv = document.getElementById('emergencyProtocol');
+const protocolTextDiv = document.getElementById('protocolText');
 
-document.addEventListener('DOMContentLoaded', () => {
-    updateClock();
-    setInterval(updateClock, 1000);
-    setupEventListeners();
-});
-
-function updateClock() {
-    const now = new Date();
-    const timeElement = document.getElementById('system-time');
-    if (timeElement) timeElement.textContent = now.toLocaleTimeString('en-GB');
+// Helper: salva logs in localStorage e tenta sync con JSONBin
+function saveLogsToLocalStorage() {
+    localStorage.setItem('propda_inspection_logs', JSON.stringify(appState.logs));
 }
 
-function setupEventListeners() {
-    initialLoginBtn.addEventListener('click', handleInitialLogin);
-    initialPasswordInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') handleInitialLogin();
-    });
-
-    backBtn.addEventListener('click', handleBack);
-    refreshBtn.addEventListener('click', () => loadDataFromAPI());
-    
-    // Repurpose login button for supervision request
-    loginBtn.textContent = '📡 REQUEST SUPERVISION';
-    loginBtn.addEventListener('click', openSupervisionModal);
-    
-    // Hide admin elements permanently
-    adminPanel.classList.add('hidden');
-    if (logoutAdminBtn) logoutAdminBtn.style.display = 'none';
-    
-    // Modal handlers
-    document.getElementById('cancel-login').addEventListener('click', closeSupervisionModal);
-    document.getElementById('confirm-login').addEventListener('click', handleSupervisionRequest);
-    document.getElementById('cancel-add').addEventListener('click', closeAddModal);
-    document.getElementById('confirm-add').addEventListener('click', handleAddConfirm);
-    
-    if (passwordInput) {
-        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSupervisionRequest(); });
-    }
-}
-
-// ======================== INITIAL LOGIN ========================
-function handleInitialLogin() {
-    const pwd = initialPasswordInput.value.trim();
-    if (pwd === VIEWER_PASSWORD) {
-        AppState.isLoggedIn = true;
-        initialOverlay.style.display = 'none';
-        mainContainer.style.display = 'flex';
-        loadDataFromAPI();
+function loadLogsFromLocalStorage() {
+    const stored = localStorage.getItem('propda_inspection_logs');
+    if (stored) {
+        try {
+            appState.logs = JSON.parse(stored);
+        } catch(e) { appState.logs = []; }
     } else {
-        initialLoginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
+        appState.logs = [];
     }
+    renderLogs();
 }
 
-// ======================== API (READ ONLY) ========================
-async function loadDataFromAPI() {
-    if (!AppState.isLoggedIn) return;
-    try {
-        statusMsg.innerHTML = '● SYNCING...';
-        const response = await fetch(READ_URL, { headers: { 'X-Master-Key': MASTER_KEY } });
-        if (!response.ok) throw new Error('Network error');
-        const data = await response.json();
-        AppState.zones = data.record.zones || [];
-        statusMsg.innerHTML = '● CONNECTED';
-        renderCurrentView();
-    } catch (error) {
-        console.error(error);
-        statusMsg.innerHTML = '● CONNECTION ERROR';
-        if (AppState.zones.length === 0) {
-            AppState.zones = [{ name: "Test Zone", rooms: [] }];
-            renderCurrentView();
-        }
-    }
-}
-
-// ======================== UTILITY ========================
-function isHCZMCZZone(zoneName) {
-    return HCZ_MCZ_KEYWORDS.some(kw => zoneName.toLowerCase().includes(kw.toLowerCase()));
-}
-
-function getInspectedComputersCount(zoneName) {
-    const list = AppState.hczInspectedComputers[zoneName] || [];
-    return list.length;
-}
-
-function canInspectComputer(zoneName, computerId) {
-    if (!isHCZMCZZone(zoneName)) return true;
-    const inspected = AppState.hczInspectedComputers[zoneName] || [];
-    // Se il computer è già stato ispezionato in questo ingresso, non conta di nuovo
-    if (inspected.includes(computerId)) return true;
-    return inspected.length < MAX_COMPUTERS_PER_ENTRY;
-}
-
-function markComputerInspected(zoneName, computerId) {
-    if (!isHCZMCZZone(zoneName)) return;
-    if (!AppState.hczInspectedComputers[zoneName]) {
-        AppState.hczInspectedComputers[zoneName] = [];
-    }
-    const list = AppState.hczInspectedComputers[zoneName];
-    if (!list.includes(computerId) && list.length < MAX_COMPUTERS_PER_ENTRY) {
-        list.push(computerId);
-    }
-}
-
-function resetHCZEntry(zoneName) {
-    if (isHCZMCZZone(zoneName)) {
-        AppState.hczInspectedComputers[zoneName] = [];
-        // Log the entry request
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            zone: zoneName,
-            action: 'New HCZ/MCZ entry requested',
-            supervisor: AppState.currentSupervisor || 'Not supervised',
-            inspector: 'VC&A Agent'
-        };
-        AppState.inspectionLog.push(logEntry);
-        statusMsg.innerHTML = `● NEW ENTRY GRANTED FOR ${zoneName}`;
-        setTimeout(() => statusMsg.innerHTML = '● CONNECTED', 2000);
-    }
-}
-
-// ======================== RENDERING ========================
-function renderCurrentView() {
-    if (!AppState.isLoggedIn) return;
-    if (AppState.currentView === 'zones') {
-        renderZonesView();
-        breadcrumbSpan.textContent = 'ALL ZONES';
-        backBtn.disabled = true;
-    } else if (AppState.currentView === 'rooms' && AppState.currentZoneIndex !== -1) {
-        renderRoomsView();
-        breadcrumbSpan.textContent = `${AppState.zones[AppState.currentZoneIndex].name} · ROOMS`;
-        backBtn.disabled = false;
-    } else if (AppState.currentView === 'doors' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
-        renderDoorsView();
-        const zone = AppState.zones[AppState.currentZoneIndex];
-        const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · ${AppState.showComputersForViewer ? 'COMPUTERS' : 'DOORS'}`;
-        backBtn.disabled = false;
-    }
-    
-    // Update supervision status in footer
-    if (AppState.supervisionActive && AppState.currentSupervisor) {
-        statusMsg.innerHTML = `● SUPERVISED BY ${AppState.currentSupervisor.toUpperCase()}`;
-    } else if (AppState.currentView !== 'zones' && !AppState.supervisionActive) {
-        statusMsg.innerHTML = '● SUPERVISION REQUIRED';
-    } else {
-        statusMsg.innerHTML = '● CONNECTED';
-    }
-}
-
-function renderZonesView() {
-    let html = '<div class="zone-grid">';
-    AppState.zones.forEach((zone, index) => {
-        const totalRooms = zone.rooms.length;
-        let totalDoors = 0, totalComputers = 0, hasAnomaly = false;
-        zone.rooms.forEach(room => {
-            totalDoors += room.doors.length;
-            totalComputers += room.computers.length;
-            if (room.computers.some(c => c.anomalous)) hasAnomaly = true;
-        });
-        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
-        const isHCZ = isHCZMCZZone(zone.name);
-        const inspectedCount = getInspectedComputersCount(zone.name);
-        const limitReached = isHCZ && inspectedCount >= MAX_COMPUTERS_PER_ENTRY;
-        
-        html += `
-            <div class="zone-card ${anomalyClass}" data-zone-index="${index}" style="position:relative;">
-                <h3>${zone.name}</h3>
-                <div class="zone-stats">
-                    🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} rooms
-                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
-                    ${isHCZ ? `<br><span style="color:#f1c40f;">🔒 HCZ/MCZ: ${inspectedCount}/${MAX_COMPUTERS_PER_ENTRY} terminals inspected</span>` : ''}
-                </div>
-                ${limitReached ? '<div style="position:absolute; top:5px; right:5px; color:#e74c3c;">⛔ LIMIT</div>' : ''}
-                ${isHCZ ? `
-                <div style="margin-top:10px;">
-                    <button class="btn-small btn request-entry-btn" data-zone-name="${zone.name}">🔄 Request New Entry</button>
-                </div>` : ''}
-            </div>
-        `;
-    });
-    html += '</div>';
-    contentArea.innerHTML = html;
-    
-    document.querySelectorAll('.zone-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            // Ignore if clicking on the button inside
-            if (e.target.classList.contains('request-entry-btn')) return;
-            const idx = card.dataset.zoneIndex;
-            if (idx !== undefined) {
-                openZone(parseInt(idx));
-            }
-        });
-    });
-    
-    document.querySelectorAll('.request-entry-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const zoneName = btn.dataset.zoneName;
-            if (confirm(`Request new entry for ${zoneName}? This will reset the terminal inspection count.`)) {
-                resetHCZEntry(zoneName);
-                renderCurrentView();
-            }
-        });
-    });
-}
-
-function renderRoomsView() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    let html = `<div style="margin-bottom:15px;"><h2 style="color:#d4ede8;">Rooms in ${zone.name}</h2></div>`;
-    
-    // Show supervision request if not active
-    if (!AppState.supervisionActive) {
-        html += `<div style="margin-bottom:20px; padding:10px; background:rgba(192,57,43,0.2); border-left:4px solid #c0392b;">
-            <strong>⚠️ Foundation supervision required to proceed.</strong> Click "REQUEST SUPERVISION" below.
-        </div>`;
-    } else {
-        html += `<div style="margin-bottom:20px; padding:10px; background:rgba(29,116,131,0.2); border-left:4px solid #1D7483;">
-            ✅ Supervised by: <strong>${AppState.currentSupervisor}</strong>
-        </div>`;
-    }
-    
-    html += '<div class="zone-grid">';
-    zone.rooms.forEach((room, idx) => {
-        const hasAnomaly = room.computers.some(c => c.anomalous);
-        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
-        const doorsCount = room.doors.length;
-        const computersCount = room.computers.length;
-        
-        html += `
-            <div class="zone-card ${anomalyClass}" data-room-index="${idx}">
-                <h3>${room.name}</h3>
-                <div class="zone-stats">
-                    🚪 ${doorsCount} door${doorsCount !== 1 ? 's' : ''} &nbsp;|&nbsp; 💻 ${computersCount} computer${computersCount !== 1 ? 's' : ''}
-                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    contentArea.innerHTML = html;
-    
-    document.querySelectorAll('.zone-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            const idx = card.dataset.roomIndex;
-            if (idx !== undefined) {
-                if (!AppState.supervisionActive) {
-                    openSupervisionModal();
-                    return;
-                }
-                openRoom(parseInt(idx));
-            }
-        });
-    });
-}
-
-function renderDoorsView() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    const room = zone.rooms[AppState.currentRoomIndex];
-    const isHCZ = isHCZMCZZone(zone.name);
-    const inspectedCount = getInspectedComputersCount(zone.name);
-    
-    let html = '';
-    
-    // Supervision banner
-    html += `<div style="margin-bottom:15px; padding:8px; background:rgba(29,116,131,0.2); border-left:4px solid #1D7483;">
-        ✅ Supervised by: <strong>${AppState.currentSupervisor}</strong> | Zone: ${zone.name} ${isHCZ ? `(HCZ/MCZ - ${inspectedCount}/${MAX_COMPUTERS_PER_ENTRY} terminals inspected)` : ''}
-    </div>`;
-    
-    // Toggle button for computers
-    html += `
-        <div style="margin-bottom:20px; display: flex; gap: 10px;">
-            <button id="toggle-viewer-view" class="btn">
-                ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
-            </button>
-            <button id="log-inspection-btn" class="btn" style="background: #1D7483;">📋 LOG INSPECTION</button>
-        </div>
-    `;
-    
-    if (AppState.showComputersForViewer) {
-        // Computer list
-        html += `<ul class="items-list">`;
-        room.computers.forEach((comp) => {
-            const canInspect = canInspectComputer(zone.name, comp.id);
-            const alreadyInspected = AppState.hczInspectedComputers[zone.name]?.includes(comp.id) || false;
-            
-            html += `
-                <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}" data-computer-id="${comp.id}">
-                    <span class="item-icon">💻</span>
-                    <div class="item-info">
-                        <div class="item-id">${comp.id}</div>
-                        <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
-                            ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
-                        </div>
-                    </div>
-                    ${isHCZ && !canInspect && !alreadyInspected ? '<span style="color:#e74c3c; margin-right:10px;">⛔ LIMIT REACHED</span>' : ''}
-                    <button class="btn-small btn inspect-comp-btn" data-computer-id="${comp.id}" ${!canInspect && !alreadyInspected ? 'disabled' : ''}>
-                        🔍 INSPECT
-                    </button>
-                </li>
-            `;
-        });
-        html += '</ul>';
-    } else {
-        // Doors list
-        html += `<ul class="items-list">`;
-        room.doors.forEach((door) => {
-            html += `
-                <li class="item-row door">
-                    <span class="item-icon">🚪</span>
-                    <div class="item-info">
-                        <div class="item-id">${door.id}</div>
-                        <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
-                            ${door.locked ? 'LOCKED' : 'UNLOCKED'}
-                        </div>
-                    </div>
-                </li>
-            `;
-        });
-        html += '</ul>';
-    }
-    
-    contentArea.innerHTML = html;
-    
-    document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
-        AppState.showComputersForViewer = !AppState.showComputersForViewer;
-        renderCurrentView();
-    });
-    
-    document.getElementById('log-inspection-btn')?.addEventListener('click', () => {
-        logCurrentInspection();
-    });
-    
-    // Inspect computer buttons
-    document.querySelectorAll('.inspect-comp-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const computerId = btn.dataset.computerId;
-            if (!AppState.supervisionActive) {
-                alert('Supervision required.');
-                return;
-            }
-            const zoneName = AppState.zones[AppState.currentZoneIndex].name;
-            if (!canInspectComputer(zoneName, computerId)) {
-                alert(`Cannot inspect more than ${MAX_COMPUTERS_PER_ENTRY} terminals per HCZ/MCZ entry. Request new entry.`);
-                return;
-            }
-            markComputerInspected(zoneName, computerId);
-            
-            // Log inspection
-            const logEntry = {
-                timestamp: new Date().toISOString(),
-                zone: zoneName,
-                room: room.name,
-                computer: computerId,
-                action: 'Inspected',
-                supervisor: AppState.currentSupervisor,
-                inspector: 'VC&A Agent'
-            };
-            AppState.inspectionLog.push(logEntry);
-            
-            alert(`Terminal ${computerId} inspected.`);
-            renderCurrentView();
-        });
-    });
-}
-
-// ======================== SUPERVISION MODAL ========================
-function openSupervisionModal() {
-    loginModal.classList.remove('hidden');
-    document.querySelector('#login-modal h2').textContent = 'REQUEST FOUNDATION SUPERVISION';
-    document.querySelector('#login-modal p').textContent = 'Enter supervisor name (simulate radio request)';
-    passwordInput.placeholder = 'Supervisor Name';
-    passwordInput.value = '';
-    loginError.textContent = '';
-    passwordInput.focus();
-}
-
-function closeSupervisionModal() {
-    loginModal.classList.add('hidden');
-}
-
-function handleSupervisionRequest() {
-    const supervisorName = passwordInput.value.trim();
-    if (!supervisorName) {
-        loginError.textContent = 'Supervisor name required.';
+// Render della lista log
+function renderLogs() {
+    if (!logListDiv) return;
+    if (appState.logs.length === 0) {
+        logListDiv.innerHTML = '<div class="empty-log">Nessuna ispezione registrata. Completa e salva una ispezione.</div>';
         return;
     }
-    AppState.supervisionActive = true;
-    AppState.currentSupervisor = supervisorName;
-    closeSupervisionModal();
-    
-    // Log supervision start
-    const zone = AppState.currentZoneIndex !== -1 ? AppState.zones[AppState.currentZoneIndex] : null;
-    const logEntry = {
-        timestamp: new Date().toISOString(),
-        zone: zone ? zone.name : 'N/A',
-        supervisor: supervisorName,
-        action: 'Supervision granted',
-        inspector: 'VC&A Agent'
-    };
-    AppState.inspectionLog.push(logEntry);
-    
-    statusMsg.innerHTML = `● SUPERVISION ACTIVE: ${supervisorName.toUpperCase()}`;
-    renderCurrentView();
+    logListDiv.innerHTML = appState.logs.slice().reverse().map(log => {
+        return `<div class="log-item">
+            <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.zone} | ${log.scpId} | Term:${log.terminalId}<br>
+            Esito: ${log.scanResult} | Supervisore: ${log.supervisor} | Agente: ${log.agent || 'N/D'}
+            ${log.anomalyNote ? `<br><span style="color:#f4a261;">⚠️ Anomalia: ${log.anomalyNote.substring(0, 80)}</span>` : ''}
+        </div>`;
+    }).join('');
 }
 
-function logCurrentInspection() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    const room = zone.rooms[AppState.currentRoomIndex];
-    const logEntry = {
+// Aggiunge un'ispezione ai log
+function addInspectionLog(inspectionData) {
+    const newLog = {
+        id: Date.now(),
         timestamp: new Date().toISOString(),
-        zone: zone.name,
-        room: room.name,
-        doorsChecked: room.doors.length,
-        computersChecked: room.computers.length,
-        anomaliesFound: room.computers.filter(c => c.anomalous).length,
-        supervisor: AppState.currentSupervisor || 'None',
-        inspector: 'VC&A Agent'
+        agent: prompt("Inserisci il tuo nome/codice agente PROPDA (per logging RAISA):", "Agente") || "Anonimo",
+        zone: inspectionData.zone,
+        scpId: inspectionData.scpId,
+        terminalId: inspectionData.terminalId,
+        supervisor: inspectionData.supervisor,
+        hardwareChecked: inspectionData.hardwareChecked,
+        scanResult: inspectionData.scanResult,
+        anomalyNote: inspectionData.anomalyNote || null,
+        sessionTerminalCount: appState.session.terminalsInspected
     };
-    AppState.inspectionLog.push(logEntry);
+    appState.logs.push(newLog);
+    saveLogsToLocalStorage();
+    renderLogs();
+    // Tentativo di sincronizzazione con JSONBin se configurato
+    syncWithJsonBinBackground();
+    return newLog;
+}
+
+// Sincronizzazione con JSONBin.io (push di tutti i log)
+async function syncWithJsonBinBackground() {
+    const { binId, apiKey } = appState.jsonBinConfig;
+    if (!binId || !apiKey) {
+        jsonBinStatusSpan.innerText = "non configurato";
+        jsonBinStatusSpan.className = "status-offline";
+        return;
+    }
+    try {
+        jsonBinStatusSpan.innerText = "sincronizzazione...";
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': apiKey
+            },
+            body: JSON.stringify({ logs: appState.logs, lastUpdate: new Date().toISOString() })
+        });
+        if (response.ok) {
+            jsonBinStatusSpan.innerText = "connesso ✅";
+            jsonBinStatusSpan.className = "status-online";
+        } else {
+            throw new Error("Errore API");
+        }
+    } catch (err) {
+        console.error("Sync JSONBin fallita", err);
+        jsonBinStatusSpan.innerText = "errore sync";
+        jsonBinStatusSpan.className = "status-offline";
+    }
+}
+
+// Carica i log da JSONBin (all'avvio se configurato)
+async function loadFromJsonBin() {
+    const { binId, apiKey } = appState.jsonBinConfig;
+    if (!binId || !apiKey) return;
+    try {
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+            headers: { 'X-Master-Key': apiKey }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.record && data.record.logs) {
+                appState.logs = data.record.logs;
+                saveLogsToLocalStorage();
+                renderLogs();
+                jsonBinStatusSpan.innerText = "connesso ✅";
+                jsonBinStatusSpan.className = "status-online";
+            }
+        }
+    } catch(e) { console.warn("Caricamento JSONBin fallito", e); }
+}
+
+// Gestione zona e limite terminali (Clausola 10.A)
+function updateSessionZone() {
+    const newZone = zoneSelect.value;
+    if (newZone === "") return;
+    // Se cambio zona rispetto alla precedente, reset del contatore se la nuova zona è MCZ/HCZ o se si passa da MCZ/HCZ a LCZ?
+    // Secondo clausola: il limite si applica per singolo accesso in MCZ/HCZ. Se cambio zona, consideriamo nuovo accesso.
+    const oldZone = appState.session.zone;
+    if (oldZone !== newZone) {
+        // Reset contatore se la nuova zona è MCZ o HCZ oppure se si esce da MCZ/HCZ (per sicurezza)
+        if (newZone === 'MCZ' || newZone === 'HCZ') {
+            appState.session.terminalsInspected = 0;
+        } else if (oldZone === 'MCZ' || oldZone === 'HCZ') {
+            // Lasciamo contatore a 0 per LCZ (non vincolante)
+            appState.session.terminalsInspected = 0;
+        }
+        appState.session.zone = newZone;
+    } else if (!appState.session.zone) {
+        appState.session.zone = newZone;
+    }
+    currentZoneSpan.innerText = newZone;
+    terminalCountSpan.innerText = appState.session.terminalsInspected;
+    // Abilita/disabilita pulsante reset accesso
+    if (newZone === 'MCZ' || newZone === 'HCZ') {
+        resetAccessBtn.disabled = false;
+    } else {
+        resetAccessBtn.disabled = true;
+    }
+    // Verifica limite
+    if ((newZone === 'MCZ' || newZone === 'HCZ') && appState.session.terminalsInspected >= 2) {
+        alert("ATTENZIONE: hai raggiunto il limite di 2 terminali ispezionati in questa zona. Richiedi nuovo accesso (Clausola 10.A).");
+        scanBtn.disabled = true;
+        saveBtn.disabled = true;
+    } else {
+        scanBtn.disabled = false;
+        saveBtn.disabled = true; // si abilita solo dopo scan
+    }
+}
+
+function resetAccess() {
+    if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
+        appState.session.terminalsInspected = 0;
+        terminalCountSpan.innerText = "0";
+        alert("Accesso resettato. Puoi ispezionare fino a 2 nuovi terminali in questa zona.");
+        scanBtn.disabled = false;
+        if (!appState.currentScan.inProgress) saveBtn.disabled = true;
+    }
+}
+
+// Timer scan di 10 secondi (simulazione)
+let scanTimer = null;
+function startScan() {
+    // Validazioni preliminari
+    if (!zoneSelect.value) { alert("Seleziona una zona di ispezione."); return; }
+    if (!scpInput.value.trim()) { alert("Inserisci SCP / Room ID."); return; }
+    if (!terminalInput.value.trim()) { alert("Inserisci Terminale ID."); return; }
+    if (!supervisorInput.value.trim()) { alert("Inserisci il nome del supervisore Foundation presente (Clausola 10.B)."); return; }
+    if ((appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') && appState.session.terminalsInspected >= 2) {
+        alert("Limite terminali raggiunto. Richiedi nuovo accesso con il pulsante apposito.");
+        return;
+    }
+    if (appState.currentScan.inProgress) return;
     
-    const logText = JSON.stringify(AppState.inspectionLog, null, 2);
-    const blob = new Blob([logText], { type: 'application/json' });
+    appState.currentScan.inProgress = true;
+    scanBtn.disabled = true;
+    scanProgressDiv.style.display = "flex";
+    resultsArea.style.display = "none";
+    saveBtn.disabled = true;
+    
+    let progress = 0;
+    const progressBar = document.querySelector('.progress-bar');
+    const progressText = document.querySelector('.progress-text');
+    const interval = setInterval(() => {
+        progress += 10;
+        if (progressBar) progressBar.style.width = `${progress}%`;
+        if (progressText) progressText.innerText = `Scansione in corso... ${progress}%`;
+        if (progress >= 100) {
+            clearInterval(interval);
+            // Scan completato
+            appState.currentScan.inProgress = false;
+            scanProgressDiv.style.display = "none";
+            resultsArea.style.display = "block";
+            // Reset radio
+            document.querySelectorAll('input[name="scanResult"]').forEach(radio => radio.checked = false);
+            anomalyNoteGroup.style.display = "none";
+            anomalyNote.value = "";
+            saveBtn.disabled = false;
+            scanBtn.disabled = false;
+            // Effetto sonoro? solo RP
+        }
+    }, 1000); // 10 secondi totali, 10 step da 1 secondo
+}
+
+// Gestione cambio radio anomalia
+document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        if (e.target.value === 'ANOMALIA') {
+            anomalyNoteGroup.style.display = "block";
+        } else {
+            anomalyNoteGroup.style.display = "none";
+        }
+    });
+});
+
+// Salvataggio ispezione
+function saveInspection() {
+    if (!zoneSelect.value || !scpInput.value || !terminalInput.value || !supervisorInput.value) {
+        alert("Compilare tutti i campi obbligatori.");
+        return;
+    }
+    const scanResultElem = document.querySelector('input[name="scanResult"]:checked');
+    if (!scanResultElem) {
+        alert("Seleziona l'esito della scansione (Nominale / Anomalia).");
+        return;
+    }
+    const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
+    const inspection = {
+        zone: zoneSelect.value,
+        scpId: scpInput.value.trim(),
+        terminalId: terminalInput.value.trim(),
+        supervisor: supervisorInput.value.trim(),
+        hardwareChecked: hardwareChecked,
+        scanResult: scanResultElem.value,
+        anomalyNote: (scanResultElem.value === 'ANOMALIA') ? anomalyNote.value.trim() : null
+    };
+    addInspectionLog(inspection);
+    // Incrementa contatore terminali ispezionati (Clausola 10.A)
+    if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
+        appState.session.terminalsInspected++;
+        terminalCountSpan.innerText = appState.session.terminalsInspected;
+        if (appState.session.terminalsInspected >= 2) {
+            alert("Limite di 2 terminali per questo accesso raggiunto. Per ulteriori ispezioni, richiedi nuovo accesso.");
+            scanBtn.disabled = true;
+            saveBtn.disabled = true;
+        }
+    }
+    // Reset form parziale? Manteniamo i dati ma puliamo i campi a piacere? Non necessario.
+    // Resetta area risultati e pulsante
+    resultsArea.style.display = "none";
+    saveBtn.disabled = true;
+    // Opzionale: pulire i checkbox hardware? Lasciamo all'utente.
+}
+
+// Emergenza PROP (Clausola 11)
+function reportEmergency() {
+    const supervisor = emergencySupervisor.value.trim();
+    if (!supervisor) {
+        alert("È obbligatoria la presenza di personale FBI/RAISA per attivare emergenza PROP (Clausola 11).");
+        return;
+    }
+    const propClass = propClassSelect.value;
+    let protocol = "";
+    switch(propClass) {
+        case 'PROP-E': case 'PROP-D': protocol = "Installare antivirus designato, eseguire scan completo. Monitorare per 48h."; break;
+        case 'PROP-C': protocol = "Richiedere supporto CIF (First View/Dark Wolf). Isolare il sistema e installare strumenti di containment avanzati."; break;
+        case 'PROP-B': protocol = "Isolare immediatamente il segmento di rete. Deploy antivirus su tutti i sistemi collegati. Monitoraggio settimanale."; break;
+        case 'PROP-A': case 'PROP-X': protocol = "Contattare immediatamente The Representant o High Command. NON intervenire autonomamente. Evacuare l'area se necessario."; break;
+        default: protocol = "Segui i protocolli interni di VC&A.";
+    }
+    protocolTextDiv.innerText = protocol;
+    emergencyProtocolDiv.style.display = "block";
+    // Logga evento emergenza nei log? Aggiungiamo un record speciale
+    const emergencyLog = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        agent: prompt("Registra il tuo nome agente per il rapporto emergenza:") || "Agente",
+        type: "EMERGENZA_PROP",
+        propClass: propClass,
+        supervisorRAISA: supervisor,
+        protocolAdvised: protocol
+    };
+    appState.logs.push(emergencyLog);
+    saveLogsToLocalStorage();
+    renderLogs();
+    syncWithJsonBinBackground();
+    alert(`Emergenza PROP segnalata. Protocollo: ${protocol}`);
+}
+
+// Export logs come JSON
+function exportLogs() {
+    const dataStr = JSON.stringify(appState.logs, null, 2);
+    const blob = new Blob([dataStr], {type: "application/json"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `inspection_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+    a.download = `propda_logs_${new Date().toISOString().slice(0,19)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    
-    statusMsg.innerHTML = '● INSPECTION LOGGED AND DOWNLOADED';
-    setTimeout(() => statusMsg.innerHTML = `● SUPERVISED BY ${AppState.currentSupervisor?.toUpperCase() || 'NONE'}`, 2000);
 }
 
-// ======================== NAVIGATION ========================
-function openZone(index) {
-    AppState.currentZoneIndex = index;
-    AppState.currentRoomIndex = -1;
-    AppState.currentView = 'rooms';
-    AppState.supervisionActive = false; // Reset supervision when changing zone
-    AppState.currentSupervisor = null;
-    AppState.showComputersForViewer = false;
-    renderCurrentView();
+function clearLocalLogs() {
+    if (confirm("Cancellare tutti i log locali? (I dati su JSONBin.io rimarranno se configurati)")) {
+        appState.logs = [];
+        saveLogsToLocalStorage();
+        renderLogs();
+        alert("Log locali cancellati.");
+    }
 }
 
-function openRoom(index) {
-    if (!AppState.supervisionActive) {
-        openSupervisionModal();
+// Configurazione JSONBin
+function showConfigModal() {
+    const modal = document.getElementById('configModal');
+    modal.style.display = "flex";
+    document.getElementById('binIdInput').value = appState.jsonBinConfig.binId || "";
+    document.getElementById('apiKeyInput').value = appState.jsonBinConfig.apiKey || "";
+}
+function saveJsonBinConfig() {
+    const binId = document.getElementById('binIdInput').value.trim();
+    const apiKey = document.getElementById('apiKeyInput').value.trim();
+    if (!binId || !apiKey) {
+        alert("Inserisci sia Bin ID che API Key");
         return;
     }
-    AppState.currentRoomIndex = index;
-    AppState.currentView = 'doors';
-    AppState.showComputersForViewer = false;
-    renderCurrentView();
+    appState.jsonBinConfig = { binId, apiKey };
+    localStorage.setItem('propda_jsonbin_config', JSON.stringify(appState.jsonBinConfig));
+    document.getElementById('configModal').style.display = "none";
+    loadFromJsonBin(); // tenta di caricare
+    syncWithJsonBinBackground();
 }
 
-function handleBack() {
-    if (AppState.currentView === 'doors') {
-        AppState.currentView = 'rooms';
-        AppState.currentRoomIndex = -1;
-        AppState.showComputersForViewer = false;
-        // Supervision remains active for the zone
-    } else if (AppState.currentView === 'rooms') {
-        AppState.currentView = 'zones';
-        AppState.currentZoneIndex = -1;
-        AppState.supervisionActive = false;
-        AppState.currentSupervisor = null;
+// Carica config da localStorage
+function loadJsonBinConfig() {
+    const stored = localStorage.getItem('propda_jsonbin_config');
+    if (stored) {
+        try {
+            appState.jsonBinConfig = JSON.parse(stored);
+            if (appState.jsonBinConfig.binId && appState.jsonBinConfig.apiKey) {
+                jsonBinStatusSpan.innerText = "configurato, sincronizzo...";
+                loadFromJsonBin();
+            }
+        } catch(e) {}
     }
-    renderCurrentView();
 }
 
-// ======================== STUB FUNCTIONS ========================
-function openAddModal(type) {}
-function closeAddModal() { addModal.classList.add('hidden'); }
-function handleAddConfirm() {}
+// Event listeners
+zoneSelect.addEventListener('change', updateSessionZone);
+resetAccessBtn.addEventListener('click', resetAccess);
+scanBtn.addEventListener('click', startScan);
+saveBtn.addEventListener('click', saveInspection);
+emergencyBtn.addEventListener('click', reportEmergency);
+exportLogsBtn.addEventListener('click', exportLogs);
+clearLogsBtn.addEventListener('click', clearLocalLogs);
+syncJsonBinBtn.addEventListener('click', syncWithJsonBinBackground);
+configJsonBinBtn.addEventListener('click', showConfigModal);
+document.querySelector('#configModal .close')?.addEventListener('click', () => {
+    document.getElementById('configModal').style.display = "none";
+});
+document.getElementById('saveJsonBinConfig')?.addEventListener('click', saveJsonBinConfig);
+
+// Inizializzazione
+function init() {
+    loadLogsFromLocalStorage();
+    loadJsonBinConfig();
+    updateSessionZone();
+    // Eventuali altri setup
+}
+
+init();
