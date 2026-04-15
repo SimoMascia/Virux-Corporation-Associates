@@ -6,8 +6,8 @@
 let appState = {
     session: {
         zone: null,
-        terminalsInspected: 0,     // counter for this session (saved terminals)
-        pendingTerminals: [],      // array of terminal objects (not yet saved)
+        terminalsInspected: 0,
+        pendingTerminals: [],
         authOfficer: "",
         supervisor: "",
         sessionId: Date.now()
@@ -42,28 +42,23 @@ const clearLogsBtn = document.getElementById('clearLogsBtn');
 const syncJsonBinBtn = document.getElementById('syncWithJsonBin');
 const configJsonBinBtn = document.getElementById('configJsonBinBtn');
 const jsonBinStatusSpan = document.getElementById('jsonBinStatus');
-const emergencyBtn = document.getElementById('reportEmergencyBtn');
-const emergencySupervisor = document.getElementById('emergencySupervisor');
-const propClassSelect = document.getElementById('propClass');
-const emergencyProtocolDiv = document.getElementById('emergencyProtocol');
 
-// Last scan data (temporary)
 let lastScanData = null;
 let scanInProgress = false;
 
-// Helper: render pending terminals list
+// ========== RENDER FUNCTIONS ==========
 function renderPendingTerminals() {
     if (!sessionTerminalsList) return;
     if (appState.session.pendingTerminals.length === 0) {
-        sessionTerminalsList.innerHTML = '<div class="empty-queue">No terminals added yet.</div>';
+        sessionTerminalsList.innerHTML = '<div class="empty-queue">Nessun terminale aggiunto.</div>';
         saveSessionBtn.style.display = 'none';
         return;
     }
     saveSessionBtn.style.display = 'block';
-    saveSessionBtn.innerHTML = `💾 Save session (${appState.session.pendingTerminals.length} terminal${appState.session.pendingTerminals.length !== 1 ? 's' : ''})`;
+    saveSessionBtn.innerHTML = `💾 Salva sessione (${appState.session.pendingTerminals.length} terminale${appState.session.pendingTerminals.length !== 1 ? 'i' : ''})`;
     sessionTerminalsList.innerHTML = appState.session.pendingTerminals.map((term, idx) => {
         return `<div class="queue-item">
-            <span><strong>${term.scpId}</strong> | ${term.terminalId} | ${term.scanResult}</span>
+            <span><strong>${term.scpId}</strong> | ${term.terminalId} | ${term.scanResult === 'CLEAR' ? '✅ Pulito' : '⚠️ Anomalia'}</span>
             <button class="remove-terminal" data-index="${idx}">✖</button>
         </div>`;
     }).join('');
@@ -76,100 +71,261 @@ function renderPendingTerminals() {
     });
 }
 
-// Update terminal counter display
 function updateTerminalCounterDisplay() {
     terminalCountSpan.innerText = appState.session.terminalsInspected;
 }
 
-// Reset terminal counter (when auth officer changes or reset button)
+function renderLogs() {
+    if (!logListDiv) return;
+    if (appState.logs.length === 0) {
+        logListDiv.innerHTML = '<div class="empty-log">Nessun log ancora.</div>';
+        return;
+    }
+    logListDiv.innerHTML = appState.logs.slice().reverse().map(log => {
+        let terminalsHtml = log.terminals.map(t => 
+            `<li>${t.scpId} | ${t.terminalId} | ${t.scanResult === 'CLEAR' ? '✅ Pulito' : '⚠️ Anomalia'}${t.anomalyNote ? ` (${t.anomalyNote})` : ''}</li>`
+        ).join('');
+        return `<div class="log-item">
+            <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.zone} | Agente: ${log.agent}<br>
+            Supervisore: ${log.supervisor} | Autorizzazione: ${log.authOfficer || 'N/A'}<br>
+            Terminali (${log.terminals.length}):<ul style="margin:4px 0 0 20px">${terminalsHtml}</ul>
+        </div>`;
+    }).join('');
+}
+
+// ========== LOG STORAGE (localStorage) ==========
+function saveLogsToLocalStorage() {
+    localStorage.setItem('propda_inspection_logs', JSON.stringify(appState.logs));
+}
+
+function loadLogsFromLocalStorage() {
+    const stored = localStorage.getItem('propda_inspection_logs');
+    if (stored) {
+        try {
+            appState.logs = JSON.parse(stored);
+        } catch(e) { appState.logs = []; }
+    } else {
+        appState.logs = [];
+    }
+    renderLogs();
+}
+
+// ========== JSONBin.IO SYNC ==========
+async function syncWithJsonBin() {
+    const { binId, accessKey } = appState.jsonBinConfig;
+    if (!binId || !accessKey) {
+        jsonBinStatusSpan.innerText = "non configurato";
+        jsonBinStatusSpan.className = "status-offline";
+        alert("Configura prima Bin ID e Access Key nel pannello JSONBin.");
+        return;
+    }
+    jsonBinStatusSpan.innerText = "sincronizzazione...";
+    try {
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Access-Key': accessKey
+            },
+            body: JSON.stringify({ logs: appState.logs, lastUpdate: new Date().toISOString() })
+        });
+        if (response.ok) {
+            jsonBinStatusSpan.innerText = "connesso ✅";
+            jsonBinStatusSpan.className = "status-online";
+            alert("Log sincronizzati con JSONBin.");
+        } else {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+    } catch (err) {
+        console.error("Errore sync:", err);
+        jsonBinStatusSpan.innerText = "errore sync";
+        jsonBinStatusSpan.className = "status-offline";
+        alert("Errore di sincronizzazione: " + err.message);
+    }
+}
+
+async function loadFromJsonBin() {
+    const { binId, accessKey } = appState.jsonBinConfig;
+    if (!binId || !accessKey) return;
+    try {
+        const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+            headers: { 'X-Access-Key': accessKey }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.record && data.record.logs) {
+                appState.logs = data.record.logs;
+                saveLogsToLocalStorage();
+                renderLogs();
+                jsonBinStatusSpan.innerText = "connesso ✅";
+                jsonBinStatusSpan.className = "status-online";
+            } else {
+                // Bin vuoto o struttura diversa: inizializza array vuoto
+                appState.logs = [];
+                saveLogsToLocalStorage();
+                renderLogs();
+                jsonBinStatusSpan.innerText = "connesso (vuoto)";
+            }
+        } else if (response.status === 404) {
+            // Bin non trovato (forse cancellato)
+            jsonBinStatusSpan.innerText = "bin non trovato";
+            jsonBinStatusSpan.className = "status-offline";
+        } else {
+            throw new Error(`HTTP ${response.status}`);
+        }
+    } catch(e) {
+        console.warn("Caricamento da JSONBin fallito:", e);
+        jsonBinStatusSpan.innerText = "errore caricamento";
+        jsonBinStatusSpan.className = "status-offline";
+    }
+}
+
+// ========== EXPORT LOGS AS JSON FILE ==========
+function exportLogsAsJson() {
+    if (appState.logs.length === 0) {
+        alert("Nessun log da esportare.");
+        return;
+    }
+    const dataStr = JSON.stringify(appState.logs, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().slice(0,19).replace(/:/g, '-');
+    a.download = `propda_logs_${timestamp}.json`;
+    a.href = url;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert("File JSON esportato con successo.");
+}
+
+// ========== CLEAR LOCAL LOGS ==========
+function clearLocalLogs() {
+    if (confirm("Cancellare tutti i log locali? (I dati su JSONBin.io rimarranno)")) {
+        appState.logs = [];
+        saveLogsToLocalStorage();
+        renderLogs();
+        alert("Log locali cancellati.");
+    }
+}
+
+// ========== JSONBin CONFIGURATION MODAL ==========
+function showConfigModal() {
+    const modal = document.getElementById('configModal');
+    modal.style.display = "flex";
+    document.getElementById('binIdInput').value = appState.jsonBinConfig.binId || "";
+    document.getElementById('apiKeyInput').value = appState.jsonBinConfig.accessKey || "";
+}
+
+function saveJsonBinConfig() {
+    const binId = document.getElementById('binIdInput').value.trim();
+    const accessKey = document.getElementById('apiKeyInput').value.trim();
+    if (!binId || !accessKey) {
+        alert("Inserisci sia Bin ID che Access Key");
+        return;
+    }
+    appState.jsonBinConfig = { binId, accessKey };
+    localStorage.setItem('propda_jsonbin_config', JSON.stringify(appState.jsonBinConfig));
+    document.getElementById('configModal').style.display = "none";
+    // Prova a caricare dal bin appena configurato
+    loadFromJsonBin().then(() => {
+        // Dopo caricamento, sincronizza eventuali log locali non presenti
+        syncWithJsonBin();
+    });
+}
+
+function loadJsonBinConfig() {
+    const stored = localStorage.getItem('propda_jsonbin_config');
+    if (stored) {
+        try {
+            const config = JSON.parse(stored);
+            if (config.apiKey && !config.accessKey) {
+                appState.jsonBinConfig = { binId: config.binId, accessKey: config.apiKey };
+            } else {
+                appState.jsonBinConfig = config;
+            }
+            if (appState.jsonBinConfig.binId && appState.jsonBinConfig.accessKey) {
+                jsonBinStatusSpan.innerText = "configurato, caricamento...";
+                loadFromJsonBin();
+            }
+        } catch(e) {}
+    }
+}
+
+// ========== SESSION LOGIC ==========
 function resetTerminalCounter() {
     if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
         appState.session.terminalsInspected = 0;
         updateTerminalCounterDisplay();
-        alert("Terminal counter reset for this access.");
+        alert("Contatore terminali resettato per questo accesso.");
     } else {
         appState.session.terminalsInspected = 0;
         updateTerminalCounterDisplay();
     }
 }
 
-// Zone change handler
 function updateSessionZone() {
     const newZone = zoneSelect.value;
     if (newZone === "") return;
     appState.session.zone = newZone;
     currentZoneSpan.innerText = newZone;
-    // Reset counter and pending terminals on zone change (new session)
     appState.session.terminalsInspected = 0;
     appState.session.pendingTerminals = [];
     renderPendingTerminals();
     updateTerminalCounterDisplay();
-    if (newZone === 'MCZ' || newZone === 'HCZ') {
-        // Show hint
-    }
 }
 
-// Add current terminal to session (pending)
 function addCurrentTerminalToSession() {
-    if (!lastScanData) { alert("Run a scan first."); return; }
+    if (!lastScanData) { alert("Esegui prima una scansione."); return; }
     const zone = appState.session.zone;
     const pendingCount = appState.session.pendingTerminals.length;
     const savedCount = appState.session.terminalsInspected;
     if ((zone === 'MCZ' || zone === 'HCZ') && (savedCount + pendingCount) >= 2) {
-        alert("Cannot add more than 2 terminals in MCZ/HCZ for this session. Save current session first or reset access.");
+        alert("Non puoi aggiungere più di 2 terminali in MCZ/HCZ per questa sessione. Salva la sessione corrente o resetta l'accesso.");
         return;
     }
-    // Get current scan result from radios
     const selectedResult = document.querySelector('input[name="scanResult"]:checked');
-    if (!selectedResult) { alert("Select scan result (Clear/Anomaly)."); return; }
+    if (!selectedResult) { alert("Seleziona l'esito della scansione (Pulito/Anomalia)."); return; }
     const scanResult = selectedResult.value;
     const anomalyText = (scanResult === 'ANOMALY') ? anomalyNote.value.trim() : null;
-    const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
     const terminalData = {
         scpId: scpInput.value.trim(),
         terminalId: terminalInput.value.trim(),
-        hardwareChecked: hardwareChecked,
         scanResult: scanResult,
         anomalyNote: anomalyText,
         timestamp: new Date().toISOString()
     };
     appState.session.pendingTerminals.push(terminalData);
     renderPendingTerminals();
-    // Reset form for next terminal
     scpInput.value = '';
     terminalInput.value = '';
-    document.querySelectorAll('.hw-check').forEach(cb => cb.checked = false);
     resultsArea.style.display = 'none';
     postScanActions.style.display = 'none';
     lastScanData = null;
 }
 
-// Save a single terminal as an individual log (bypass session)
 function saveSingleTerminal() {
-    if (!lastScanData) { alert("Run a scan first."); return; }
+    if (!lastScanData) { alert("Esegui prima una scansione."); return; }
     const zone = appState.session.zone;
     if ((zone === 'MCZ' || zone === 'HCZ') && appState.session.terminalsInspected >= 2) {
-        alert("Terminal limit reached for this access. Request new authorization.");
+        alert("Limite terminali raggiunto per questo accesso. Richiedi una nuova autorizzazione.");
         return;
     }
     const selectedResult = document.querySelector('input[name="scanResult"]:checked');
-    if (!selectedResult) { alert("Select scan result."); return; }
+    if (!selectedResult) { alert("Seleziona l'esito della scansione."); return; }
     const scanResult = selectedResult.value;
     const anomalyText = (scanResult === 'ANOMALY') ? anomalyNote.value.trim() : null;
-    const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
     const terminalData = {
         scpId: scpInput.value.trim(),
         terminalId: terminalInput.value.trim(),
-        hardwareChecked: hardwareChecked,
         scanResult: scanResult,
         anomalyNote: anomalyText,
         timestamp: new Date().toISOString()
     };
-    // Create a log with a single terminal
     const logEntry = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        agent: prompt("Agent name:") || "Anonymous",
+        agent: prompt("Nome agente PROPDA:") || "Anonimo",
         zone: appState.session.zone,
         supervisor: supervisorInput.value.trim(),
         authOfficer: authOfficerInput.value.trim() || null,
@@ -179,38 +335,35 @@ function saveSingleTerminal() {
     appState.logs.push(logEntry);
     saveLogsToLocalStorage();
     renderLogs();
-    syncWithJsonBinBackground();
-    // Increment counter
     if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
         appState.session.terminalsInspected++;
         updateTerminalCounterDisplay();
     }
-    // Reset UI
     scpInput.value = '';
     terminalInput.value = '';
-    document.querySelectorAll('.hw-check').forEach(cb => cb.checked = false);
     resultsArea.style.display = 'none';
     postScanActions.style.display = 'none';
     lastScanData = null;
-    alert("Terminal saved as individual log.");
+    alert("Terminale salvato come log singolo.");
+    // Opzionale: sincronizza subito
+    syncWithJsonBin();
 }
 
-// Save the entire session (all pending terminals as one log)
 function saveSession() {
     if (appState.session.pendingTerminals.length === 0) {
-        alert("No terminals in session.");
+        alert("Nessun terminale in sessione.");
         return;
     }
     const zone = appState.session.zone;
     const totalTerminals = appState.session.terminalsInspected + appState.session.pendingTerminals.length;
     if ((zone === 'MCZ' || zone === 'HCZ') && totalTerminals > 2) {
-        alert(`Cannot save ${appState.session.pendingTerminals.length} terminal(s). You already have ${appState.session.terminalsInspected} saved in this access. Max 2.`);
+        alert(`Non puoi salvare ${appState.session.pendingTerminals.length} terminale(i). Hai già ${appState.session.terminalsInspected} salvati in questo accesso. Massimo 2.`);
         return;
     }
     const logEntry = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        agent: prompt("Enter your PROPDA agent name for this session:") || "Anonymous",
+        agent: prompt("Nome agente PROPDA per questa sessione:") || "Anonimo",
         zone: zone,
         supervisor: supervisorInput.value.trim(),
         authOfficer: authOfficerInput.value.trim() || null,
@@ -220,20 +373,18 @@ function saveSession() {
     appState.logs.push(logEntry);
     saveLogsToLocalStorage();
     renderLogs();
-    syncWithJsonBinBackground();
-    // Update counter
     if (zone === 'MCZ' || zone === 'HCZ') {
         appState.session.terminalsInspected += appState.session.pendingTerminals.length;
         updateTerminalCounterDisplay();
     }
-    // Clear pending
     appState.session.pendingTerminals = [];
     renderPendingTerminals();
-    alert(`Session saved with ${logEntry.terminals.length} terminal(s).`);
+    alert(`Sessione salvata con ${logEntry.terminals.length} terminale(i).`);
+    syncWithJsonBin();
 }
 
 function clearSession() {
-    if (confirm("Clear all pending terminals from this session?")) {
+    if (confirm("Svuotare tutti i terminali in sospeso da questa sessione?")) {
         appState.session.pendingTerminals = [];
         renderPendingTerminals();
         scpInput.value = '';
@@ -244,15 +395,15 @@ function clearSession() {
     }
 }
 
-// Scan simulation (10s)
+// Scan simulation
 function startScan() {
-    if (!zoneSelect.value) { alert("Select zone."); return; }
-    if (!scpInput.value.trim()) { alert("Enter SCP ID."); return; }
-    if (!terminalInput.value.trim()) { alert("Enter Terminal ID."); return; }
-    if (!supervisorInput.value.trim()) { alert("Enter Foundation supervisor."); return; }
+    if (!zoneSelect.value) { alert("Seleziona una zona."); return; }
+    if (!scpInput.value.trim()) { alert("Inserisci SCP ID."); return; }
+    if (!terminalInput.value.trim()) { alert("Inserisci Terminal ID."); return; }
+    if (!supervisorInput.value.trim()) { alert("Inserisci il nome del supervisore Foundation."); return; }
     if ((appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') && 
         (appState.session.terminalsInspected + appState.session.pendingTerminals.length) >= 2) {
-        alert("Terminal limit reached. Save or reset access.");
+        alert("Limite terminali raggiunto. Salva o resetta l'accesso.");
         return;
     }
     if (scanInProgress) return;
@@ -267,7 +418,7 @@ function startScan() {
     const interval = setInterval(() => {
         progress += 10;
         progressBar.style.width = `${progress}%`;
-        progressText.innerText = `Scanning... ${progress}%`;
+        progressText.innerText = `Scansione in corso... ${progress}%`;
         if (progress >= 100) {
             clearInterval(interval);
             scanInProgress = false;
@@ -275,13 +426,10 @@ function startScan() {
             resultsArea.style.display = "block";
             postScanActions.style.display = "flex";
             scanBtn.disabled = false;
-            // Store scan data (without result yet)
             lastScanData = {
                 scpId: scpInput.value.trim(),
-                terminalId: terminalInput.value.trim(),
-                hardwareChecked: Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value)
+                terminalId: terminalInput.value.trim()
             };
-            // Reset radio and anomaly note
             document.querySelectorAll('input[name="scanResult"]').forEach(r => r.checked = false);
             anomalyNoteGroup.style.display = "none";
             anomalyNote.value = "";
@@ -289,7 +437,7 @@ function startScan() {
     }, 1000);
 }
 
-// Radio change handler
+// Radio change
 document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         if (e.target.value === 'ANOMALY') {
@@ -300,77 +448,7 @@ document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     });
 });
 
-// Emergency
-function reportEmergency() {
-    const supervisor = emergencySupervisor.value.trim();
-    if (!supervisor) { alert("FBI/RAISA supervisor required."); return; }
-    const propClass = propClassSelect.value;
-    let protocol = "";
-    switch(propClass) {
-        case 'PROP-E': case 'PROP-D': protocol = "Install antivirus, full scan. Monitor 48h."; break;
-        case 'PROP-C': protocol = "Request CIF support, isolate system."; break;
-        case 'PROP-B': protocol = "Isolate network segment, deploy advanced AV."; break;
-        case 'PROP-A': case 'PROP-X': protocol = "Contact The Representant immediately."; break;
-        default: protocol = "Follow VC&A protocols.";
-    }
-    emergencyProtocolDiv.innerHTML = `<strong>📖 Protocol:</strong> ${protocol}`;
-    emergencyProtocolDiv.style.display = "block";
-    const emergencyLog = {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        agent: prompt("Agent name:") || "Agent",
-        type: "EMERGENCY_PROP",
-        propClass: propClass,
-        supervisorRAISA: supervisor,
-        protocolAdvised: protocol
-    };
-    appState.logs.push(emergencyLog);
-    saveLogsToLocalStorage();
-    renderLogs();
-    syncWithJsonBinBackground();
-    alert("Emergency reported.");
-}
-
-// Logs functions
-function saveLogsToLocalStorage() {
-    localStorage.setItem('propda_inspection_logs', JSON.stringify(appState.logs));
-}
-function loadLogsFromLocalStorage() {
-    const stored = localStorage.getItem('propda_inspection_logs');
-    if (stored) appState.logs = JSON.parse(stored);
-    else appState.logs = [];
-    renderLogs();
-}
-function renderLogs() {
-    if (!logListDiv) return;
-    if (appState.logs.length === 0) {
-        logListDiv.innerHTML = '<div class="empty-log">No logs yet.</div>';
-        return;
-    }
-    logListDiv.innerHTML = appState.logs.slice().reverse().map(log => {
-        if (log.terminals) {
-            // Session log with multiple terminals
-            let terminalsHtml = log.terminals.map(t => `<li>${t.scpId} | ${t.terminalId} | ${t.scanResult}${t.anomalyNote ? ` (${t.anomalyNote})` : ''}</li>`).join('');
-            return `<div class="log-item">
-                <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.zone} | Agent: ${log.agent}<br>
-                Supervisor: ${log.supervisor} | Auth: ${log.authOfficer || 'N/A'}<br>
-                Terminals (${log.terminals.length}):<ul style="margin:4px 0 0 20px">${terminalsHtml}</ul>
-            </div>`;
-        } else {
-            // Emergency log
-            return `<div class="log-item"><strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.type} | ${log.propClass}<br>Agent: ${log.agent} | RAISA: ${log.supervisorRAISA}</div>`;
-        }
-    }).join('');
-}
-async function syncWithJsonBinBackground() { /* same as before */ }
-async function loadFromJsonBin() { /* same */ }
-function exportLogs() { /* same */ }
-function clearLocalLogs() { if(confirm("Clear all logs?")){ appState.logs=[]; saveLogsToLocalStorage(); renderLogs(); } }
-function showConfigModal() { /* same */ }
-function saveJsonBinConfig() { /* same */ }
-function loadJsonBinConfig() { /* same */ }
-
-// Event listeners
+// ========== EVENT LISTENERS ==========
 zoneSelect.addEventListener('change', updateSessionZone);
 resetCounterBtn.addEventListener('click', resetTerminalCounter);
 scanBtn.addEventListener('click', startScan);
@@ -378,15 +456,16 @@ addTerminalBtn.addEventListener('click', addCurrentTerminalToSession);
 saveSingleTerminalBtn.addEventListener('click', saveSingleTerminal);
 saveSessionBtn.addEventListener('click', saveSession);
 clearSessionBtn.addEventListener('click', clearSession);
-emergencyBtn.addEventListener('click', reportEmergency);
-exportLogsBtn.addEventListener('click', exportLogs);
+exportLogsBtn.addEventListener('click', exportLogsAsJson);
 clearLogsBtn.addEventListener('click', clearLocalLogs);
-syncJsonBinBtn.addEventListener('click', syncWithJsonBinBackground);
+syncJsonBinBtn.addEventListener('click', syncWithJsonBin);
 configJsonBinBtn.addEventListener('click', showConfigModal);
-document.querySelector('#configModal .close')?.addEventListener('click', () => document.getElementById('configModal').style.display = 'none');
+document.querySelector('#configModal .close')?.addEventListener('click', () => {
+    document.getElementById('configModal').style.display = 'none';
+});
 document.getElementById('saveJsonBinConfig')?.addEventListener('click', saveJsonBinConfig);
 
-// Init
+// ========== INIT ==========
 function init() {
     loadLogsFromLocalStorage();
     loadJsonBinConfig();
