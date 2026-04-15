@@ -3,89 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>VC&A Inspection Suite</title>
+    <title>VC&A Terminal Inspection · SCP Foundation</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="app-container">
-        <aside class="sidebar">
-            <div class="logo">
-                <span class="logo-icon">🛡️</span>
-                <span>VC&A<br><small>Inspection Suite</small></span>
-            </div>
-            <nav>
-                <button class="nav-btn active" data-view="inspector">🔍 Inspector</button>
-                <button class="nav-btn" data-view="admin">⚙️ Admin</button>
-                <button class="nav-btn" data-view="logs">📜 Logs</button>
-            </nav>
-            <div class="contract-note">
-                <small>🔒 Contract FAD-VC&A-C-220326<br>No local write access. All data via JSONbin.</small>
-            </div>
-        </aside>
+    <div class="overlay-noise"></div>
+    <div class="scan-line"></div>
+    <div class="scp-watermark">SECURE · CONTAIN · PROTECT</div>
 
-        <main class="main-content">
-            <!-- Inspector View -->
-            <div id="inspectorView" class="view active">
-                <div class="card">
-                    <h2>🔍 Terminal Inspection</h2>
-                    <div class="warning-banner" id="hczWarning" style="display:none;">
-                        ⚠️ MCZ/HCZ restriction: max 2 terminals per re-entry request.
-                    </div>
-                    <div class="form-group">
-                        <label>Inspector Name (Agent)</label>
-                        <input type="text" id="inspectorName" placeholder="e.g., Crocoboss09" value="Inspector">
-                    </div>
-                    <div class="hierarchy-browser">
-                        <div class="browser-level">
-                            <label>Zone</label>
-                            <select id="zoneSelect"></select>
-                        </div>
-                        <div class="browser-level">
-                            <label>Room</label>
-                            <select id="roomSelect" disabled></select>
-                        </div>
-                        <div class="browser-level">
-                            <label>Computer / Terminal</label>
-                            <select id="computerSelect" disabled></select>
-                        </div>
-                    </div>
-                    <div id="portsContainer" class="ports-container">
-                        <p class="placeholder">Select a terminal to view ports</p>
-                    </div>
-                </div>
+    <!-- Initial Login Overlay -->
+    <div id="initial-login-overlay" class="modal">
+        <div class="modal-content">
+            <h2>VC&A ANTIVIRUS SYSTEM</h2>
+            <p>Restricted Access · Level 2+</p>
+            <input type="password" id="initial-password-input" class="modal-field" placeholder="PASSWORD" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="initial-login-btn" class="btn">ACCESS</button>
+            </div>
+            <div id="initial-login-error" class="error-message"></div>
+        </div>
+    </div>
+
+    <div class="container" id="main-container" style="display: none;">
+        <header>
+            <div class="header-left">
+                <span class="logo">🔴 SCP FOUNDATION</span>
+                <span class="badge">IT DEPT · TERMINAL INSPECTION</span>
+                <span class="clearance-level">CLEARANCE LEVEL 3</span>
+            </div>
+            <div class="header-right">
+                <span id="system-time">--:--:--</span>
+                <span class="blink">● SYS.ON</span>
+            </div>
+        </header>
+
+        <main>
+            <div id="breadcrumb" class="breadcrumb">
+                <span id="zone-title">ALL ZONES</span>
             </div>
 
-            <!-- Admin View -->
-            <div id="adminView" class="view">
-                <div class="card">
-                    <h2>⚙️ Hierarchy Management</h2>
-                    <p class="sub">Zones → Rooms → Computers → Ports (CRUD)</p>
-                    <div class="admin-tabs">
-                        <button class="admin-tab active" data-level="zones">Zones</button>
-                        <button class="admin-tab" data-level="rooms">Rooms</button>
-                        <button class="admin-tab" data-level="computers">Computers</button>
-                        <button class="admin-tab" data-level="ports">Ports</button>
-                    </div>
-                    <div id="adminPanel"></div>
-                </div>
-                <div class="card">
-                    <button id="syncDataBtn" class="btn-primary">⟳ Sync with JSONbin</button>
-                    <button id="exportDataBtn" class="btn-secondary">📥 Export All Data</button>
-                </div>
+            <div id="content-area" class="content-panel">
+                <!-- Dynamic content -->
             </div>
 
-            <!-- Logs View -->
-            <div id="logsView" class="view">
-                <div class="card">
-                    <h2>📜 Inspection Logs</h2>
-                    <button id="exportLogsBtn" class="btn-small">📎 Export Logs (CSV)</button>
-                    <div id="logsList" class="logs-list">
-                        <p>No inspections yet.</p>
-                    </div>
+            <div id="admin-panel" class="admin-panel hidden">
+                <div class="admin-header">
+                    <span>⚙️ ADMINISTRATOR MODE</span>
+                    <button id="logout-admin" class="btn-logout">LOGOUT</button>
                 </div>
+                <div id="admin-actions" class="admin-actions"></div>
             </div>
         </main>
+
+        <footer>
+            <div class="footer-left">
+                <button id="back-btn" class="btn" disabled>← BACK</button>
+                <button id="refresh-btn" class="btn">⟲ REFRESH</button>
+            </div>
+            <div class="footer-center">
+                <span id="status-message">● CONNECTED TO DATABASE</span>
+            </div>
+            <div class="footer-right">
+                <button id="login-btn" class="btn">📡 REQUEST SUPERVISION</button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Supervision Modal -->
+    <div id="login-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>REQUEST FOUNDATION SUPERVISION</h2>
+            <p>Enter supervisor name (simulate radio request)</p>
+            <input type="text" id="password-input" class="modal-field" placeholder="Supervisor Name" autocomplete="off">
+            <div class="modal-buttons">
+                <button id="confirm-login" class="btn">CONFIRM</button>
+                <button id="cancel-login" class="btn">CANCEL</button>
+            </div>
+            <div id="login-error" class="error-message"></div>
+        </div>
+    </div>
+
+    <!-- Generic Modal (unused but kept for structure) -->
+    <div id="add-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">ADD</h2>
+            <div id="modal-fields"></div>
+            <div class="modal-buttons">
+                <button id="confirm-add" class="btn">CONFIRM</button>
+                <button id="cancel-add" class="btn">CANCEL</button>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>
