@@ -1,6 +1,7 @@
 // ========================
 // PROPDA INSPECTION ASSISTANT
 // Compliant with contract FAD-VC&A-C-220326
+// UPDATED: Support for X-Access-Key
 // ========================
 
 // App state
@@ -17,7 +18,7 @@ let appState = {
     logs: [],
     jsonBinConfig: {
         binId: "",
-        apiKey: ""
+        accessKey: ""      // <-- Changed: Now stores Access Key
     }
 };
 
@@ -106,29 +107,37 @@ function addInspectionLog(inspectionData) {
     return newLog;
 }
 
-// Sync with JSONBin.io
+// --- UPDATED: Sync with JSONBin.io using X-Access-Key ---
 async function syncWithJsonBinBackground() {
-    const { binId, apiKey } = appState.jsonBinConfig;
-    if (!binId || !apiKey) {
+    const { binId, accessKey } = appState.jsonBinConfig;
+    if (!binId || !accessKey) {
         jsonBinStatusSpan.innerText = "not configured";
         jsonBinStatusSpan.className = "status-offline";
         return;
     }
     try {
         jsonBinStatusSpan.innerText = "syncing...";
+        // Prepare headers for the PUT request to update the bin
+        const headers = {
+            'Content-Type': 'application/json',
+            'X-Access-Key': accessKey
+        };
+        // Note: For updating a private bin, the API sometimes requires both keys.
+        // We are using only X-Access-Key. If you get a 403 error, you may need to
+        // include 'X-Master-Key' as well, but let's try with just X-Access-Key first.
+        
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': apiKey
-            },
+            headers: headers,
             body: JSON.stringify({ logs: appState.logs, lastUpdate: new Date().toISOString() })
         });
         if (response.ok) {
             jsonBinStatusSpan.innerText = "connected ✅";
             jsonBinStatusSpan.className = "status-online";
         } else {
-            throw new Error("API error");
+            const errorText = await response.text();
+            console.error("Sync failed with status:", response.status, errorText);
+            throw new Error(`API error: ${response.status}`);
         }
     } catch (err) {
         console.error("JSONBin sync failed", err);
@@ -137,12 +146,16 @@ async function syncWithJsonBinBackground() {
     }
 }
 
+// --- UPDATED: Load from JSONBin.io using X-Access-Key ---
 async function loadFromJsonBin() {
-    const { binId, apiKey } = appState.jsonBinConfig;
-    if (!binId || !apiKey) return;
+    const { binId, accessKey } = appState.jsonBinConfig;
+    if (!binId || !accessKey) return;
     try {
+        const headers = {
+            'X-Access-Key': accessKey
+        };
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-            headers: { 'X-Master-Key': apiKey }
+            headers: headers
         });
         if (response.ok) {
             const data = await response.json();
@@ -152,7 +165,11 @@ async function loadFromJsonBin() {
                 renderLogs();
                 jsonBinStatusSpan.innerText = "connected ✅";
                 jsonBinStatusSpan.className = "status-online";
+            } else {
+                console.warn("No logs found in the bin record.");
             }
+        } else {
+            console.warn("Failed to load from JSONBin, status:", response.status);
         }
     } catch(e) { console.warn("JSONBin load failed", e); }
 }
@@ -359,21 +376,24 @@ function clearLocalLogs() {
     }
 }
 
-// JSONBin configuration modal
+// --- UPDATED: JSONBin configuration modal for Access Key ---
 function showConfigModal() {
     const modal = document.getElementById('configModal');
     modal.style.display = "flex";
     document.getElementById('binIdInput').value = appState.jsonBinConfig.binId || "";
-    document.getElementById('apiKeyInput').value = appState.jsonBinConfig.apiKey || "";
+    document.getElementById('apiKeyInput').value = appState.jsonBinConfig.accessKey || "";
+    // Change label to be more specific
+    const label = document.querySelector('#configModal label[for="apiKeyInput"]');
+    if (label) label.textContent = "Access Key (X-Access-Key):";
 }
 function saveJsonBinConfig() {
     const binId = document.getElementById('binIdInput').value.trim();
-    const apiKey = document.getElementById('apiKeyInput').value.trim();
-    if (!binId || !apiKey) {
-        alert("Enter both Bin ID and API Key");
+    const accessKey = document.getElementById('apiKeyInput').value.trim();
+    if (!binId || !accessKey) {
+        alert("Enter both Bin ID and Access Key");
         return;
     }
-    appState.jsonBinConfig = { binId, apiKey };
+    appState.jsonBinConfig = { binId, accessKey };
     localStorage.setItem('propda_jsonbin_config', JSON.stringify(appState.jsonBinConfig));
     document.getElementById('configModal').style.display = "none";
     loadFromJsonBin();
@@ -384,8 +404,14 @@ function loadJsonBinConfig() {
     const stored = localStorage.getItem('propda_jsonbin_config');
     if (stored) {
         try {
-            appState.jsonBinConfig = JSON.parse(stored);
-            if (appState.jsonBinConfig.binId && appState.jsonBinConfig.apiKey) {
+            const config = JSON.parse(stored);
+            // For backward compatibility: if old config had apiKey, migrate to accessKey
+            if (config.apiKey && !config.accessKey) {
+                appState.jsonBinConfig = { binId: config.binId, accessKey: config.apiKey };
+            } else {
+                appState.jsonBinConfig = config;
+            }
+            if (appState.jsonBinConfig.binId && appState.jsonBinConfig.accessKey) {
                 jsonBinStatusSpan.innerText = "configured, syncing...";
                 loadFromJsonBin();
             }
