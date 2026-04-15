@@ -1,23 +1,28 @@
 // ======================== CONFIGURATION ========================
-const BIN_ID = "69de85f0856a68218933935b";               // Your Bin ID
-const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Your public Master Key
-const SECRET_KEY = "$2a$10$LaJi7JsnCwrNqg7YOfeW0eVbgLPgrhCLZsIir84Irs5LoLAvYbGUi";   // Your Secret Key (write access)
+const BIN_ID = "69de75ce856a6821893343d9";               // Your Bin ID
+const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";          // Your public Master Key
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
-const UPDATE_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
-
-// Access passwords
-const VIEWER_PASSWORD = "VC&A-VIEWER";   // For read-only access
-const ADMIN_PASSWORD = "VC&A-LEVEL4";    // For admin modifications
 // ===============================================================
+
+// Access password (single viewer level)
+const VIEWER_PASSWORD = "VC&A-VIEWER";
+
+// Inspection limits per zone type
+const HCZ_MCZ_ZONES = ["HCZ", "MCZ", "Heavy Containment", "Medium Containment"]; // Names containing these keywords
+const MAX_INSPECTIONS_PER_ZONE = 2;
 
 const AppState = {
     zones: [],
     isLoggedIn: false,
-    isAdmin: false,
     currentView: 'zones',
     currentZoneIndex: -1,
     currentRoomIndex: -1,
-    showComputersForViewer: false   // <-- NEW: toggle for viewers
+    showComputersForViewer: false,
+    // Contract compliance
+    inspectionCounts: {},        // { zoneName: count }
+    inspectionLog: [],           // Array of log entries
+    supervisionGranted: false,   // Simulated supervision request
+    currentAccessRequest: null   // For HCZ/MCZ limit
 };
 
 // DOM Elements
@@ -30,13 +35,13 @@ const contentArea = document.getElementById('content-area');
 const breadcrumbSpan = document.getElementById('zone-title');
 const backBtn = document.getElementById('back-btn');
 const refreshBtn = document.getElementById('refresh-btn');
-const loginBtn = document.getElementById('login-btn');
+const loginBtn = document.getElementById('login-btn'); // Will be repurposed
 const logoutAdminBtn = document.getElementById('logout-admin');
 const adminPanel = document.getElementById('admin-panel');
 const adminActions = document.getElementById('admin-actions');
 const statusMsg = document.getElementById('status-message');
 const loginModal = document.getElementById('login-modal');
-const addModal = document.getElementById('add-modal');
+const addModal = document.getElementById('add-modal'); // Will be repurposed for supervision
 const passwordInput = document.getElementById('password-input');
 const loginError = document.getElementById('login-error');
 
@@ -60,16 +65,23 @@ function setupEventListeners() {
 
     backBtn.addEventListener('click', handleBack);
     refreshBtn.addEventListener('click', () => loadDataFromAPI());
-    loginBtn.addEventListener('click', openLoginModal);
-    logoutAdminBtn.addEventListener('click', logoutAdmin);
     
-    document.getElementById('cancel-login').addEventListener('click', closeLoginModal);
-    document.getElementById('confirm-login').addEventListener('click', handleAdminLogin);
+    // Repurpose login button for supervision request
+    loginBtn.textContent = '📡 REQUEST SUPERVISION';
+    loginBtn.addEventListener('click', openSupervisionModal);
+    
+    // Hide admin panel permanently (contract compliant)
+    adminPanel.classList.add('hidden');
+    if (logoutAdminBtn) logoutAdminBtn.style.display = 'none';
+    
+    // Modal handlers
+    document.getElementById('cancel-login').addEventListener('click', closeSupervisionModal);
+    document.getElementById('confirm-login').addEventListener('click', handleSupervisionRequest);
     document.getElementById('cancel-add').addEventListener('click', closeAddModal);
     document.getElementById('confirm-add').addEventListener('click', handleAddConfirm);
     
     if (passwordInput) {
-        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleAdminLogin(); });
+        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSupervisionRequest(); });
     }
 }
 
@@ -86,7 +98,7 @@ function handleInitialLogin() {
     }
 }
 
-// ======================== API ========================
+// ======================== API (READ ONLY) ========================
 async function loadDataFromAPI() {
     if (!AppState.isLoggedIn) return;
     try {
@@ -104,33 +116,6 @@ async function loadDataFromAPI() {
             AppState.zones = [{ name: "Test Zone", rooms: [] }];
             renderCurrentView();
         }
-    }
-}
-
-async function saveDataToAPI() {
-    if (!AppState.isLoggedIn || !AppState.isAdmin) {
-        alert("Insufficient permissions.");
-        return;
-    }
-    try {
-        statusMsg.innerHTML = '● SAVING...';
-        const response = await fetch(UPDATE_URL, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': MASTER_KEY,
-                'X-Access-Key': SECRET_KEY,
-                'X-Bin-Private': 'false'
-            },
-            body: JSON.stringify({ zones: AppState.zones })
-        });
-        if (!response.ok) throw new Error('Save failed');
-        statusMsg.innerHTML = '● DATA SAVED';
-        await loadDataFromAPI();
-    } catch (error) {
-        console.error(error);
-        statusMsg.innerHTML = '● SAVE ERROR';
-        alert('Unable to save data. Check console.');
     }
 }
 
@@ -152,7 +137,6 @@ function renderCurrentView() {
         breadcrumbSpan.textContent = `${zone.name} / ${room.name} · ${AppState.showComputersForViewer ? 'COMPUTERS' : 'DOORS'}`;
         backBtn.disabled = false;
     }
-    updateAdminPanel();
 }
 
 function renderZonesView() {
@@ -166,31 +150,40 @@ function renderZonesView() {
             if (room.computers.some(c => c.anomalous)) hasAnomaly = true;
         });
         const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
+        const inspectionCount = AppState.inspectionCounts[zone.name] || 0;
+        const isHCZMCZ = HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()));
+        const limitReached = isHCZMCZ && inspectionCount >= MAX_INSPECTIONS_PER_ZONE;
+        
         html += `
-            <div class="zone-card ${anomalyClass}" data-zone-index="${index}">
+            <div class="zone-card ${anomalyClass}" data-zone-index="${index}" style="position:relative;">
                 <h3>${zone.name}</h3>
                 <div class="zone-stats">
                     🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} rooms
                     ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
+                    ${isHCZMCZ ? `<br><span style="color:#f1c40f;">🔒 HCZ/MCZ: ${inspectionCount}/${MAX_INSPECTIONS_PER_ZONE} inspections used</span>` : ''}
                 </div>
+                ${limitReached ? '<div style="position:absolute; top:5px; right:5px; color:#e74c3c;">⛔ LIMIT REACHED</div>' : ''}
             </div>
         `;
     });
     html += '</div>';
-    if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px; text-align:center;"><button id="add-zone-btn" class="btn">➕ ADD ZONE</button></div>`;
-    }
     contentArea.innerHTML = html;
     
     document.querySelectorAll('.zone-card').forEach(card => {
         card.addEventListener('click', (e) => {
             const idx = card.dataset.zoneIndex;
-            if (idx !== undefined) openZone(parseInt(idx));
+            if (idx !== undefined) {
+                const zone = AppState.zones[idx];
+                const isHCZMCZ = HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()));
+                const count = AppState.inspectionCounts[zone.name] || 0;
+                if (isHCZMCZ && count >= MAX_INSPECTIONS_PER_ZONE) {
+                    alert(`Inspection limit reached for ${zone.name}. Request new access via radio.`);
+                    return;
+                }
+                openZone(parseInt(idx));
+            }
         });
     });
-    if (AppState.isAdmin) {
-        document.getElementById('add-zone-btn')?.addEventListener('click', () => openAddModal('zone'));
-    }
 }
 
 function renderRoomsView() {
@@ -200,8 +193,6 @@ function renderRoomsView() {
     zone.rooms.forEach((room, idx) => {
         const hasAnomaly = room.computers.some(c => c.anomalous);
         const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
-        
-        // Mostra solo conteggi, non dettagli
         const doorsCount = room.doors.length;
         const computersCount = room.computers.length;
         
@@ -216,20 +207,21 @@ function renderRoomsView() {
         `;
     });
     html += '</div>';
-    if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px; text-align:center;"><button id="add-room-btn" class="btn">➕ ADD ROOM</button></div>`;
-    }
     contentArea.innerHTML = html;
     
     document.querySelectorAll('.zone-card').forEach(card => {
         card.addEventListener('click', (e) => {
             const idx = card.dataset.roomIndex;
-            if (idx !== undefined) openRoom(parseInt(idx));
+            if (idx !== undefined) {
+                // Request supervision before allowing inspection
+                if (!AppState.supervisionGranted) {
+                    openSupervisionModal();
+                    return;
+                }
+                openRoom(parseInt(idx));
+            }
         });
     });
-    if (AppState.isAdmin) {
-        document.getElementById('add-room-btn')?.addEventListener('click', () => openAddModal('room'));
-    }
 }
 
 function renderDoorsView() {
@@ -238,21 +230,19 @@ function renderDoorsView() {
     
     let html = '';
     
-    // Toggle button for viewers (only if not admin)
-    if (!AppState.isAdmin) {
-        html += `
-            <div style="margin-bottom:20px;">
-                <button id="toggle-viewer-view" class="btn">
-                    ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
-                </button>
-            </div>
-        `;
-    }
+    // Toggle button for viewers
+    html += `
+        <div style="margin-bottom:20px; display: flex; gap: 10px;">
+            <button id="toggle-viewer-view" class="btn">
+                ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
+            </button>
+            <button id="log-inspection-btn" class="btn" style="background: #1D7483;">📋 LOG THIS INSPECTION</button>
+        </div>
+    `;
     
-    if (AppState.showComputersForViewer && !AppState.isAdmin) {
-        // Viewer wants to see computers
+    if (AppState.showComputersForViewer) {
         html += `<ul class="items-list">`;
-        room.computers.forEach((comp, idx) => {
+        room.computers.forEach((comp) => {
             html += `
                 <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}">
                     <span class="item-icon">💻</span>
@@ -267,9 +257,8 @@ function renderDoorsView() {
         });
         html += '</ul>';
     } else {
-        // Show doors (default for both admin and viewer)
         html += `<ul class="items-list">`;
-        room.doors.forEach((door, idx) => {
+        room.doors.forEach((door) => {
             html += `
                 <li class="item-row door">
                     <span class="item-icon">🚪</span>
@@ -279,74 +268,95 @@ function renderDoorsView() {
                             ${door.locked ? 'LOCKED' : 'UNLOCKED'}
                         </div>
                     </div>
-                    ${AppState.isAdmin ? `
-                    <div class="item-actions">
-                        <button class="btn btn-small toggle-lock" data-idx="${idx}">🔓/🔒</button>
-                        <button class="btn btn-small btn-danger delete-door" data-idx="${idx}">🗑️</button>
-                    </div>` : ''}
                 </li>
             `;
         });
         html += '</ul>';
     }
     
-    if (AppState.isAdmin) {
-        html += `<div style="margin-top:20px;"><button id="add-door-btn" class="btn">➕ ADD DOOR</button></div>`;
-        html += `<div style="margin-top:10px;"><button id="view-computers-admin-btn" class="btn">💻 MANAGE COMPUTERS</button></div>`;
-    }
-    
     contentArea.innerHTML = html;
     
-    // Attach events
-    if (!AppState.isAdmin) {
-        document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
-            AppState.showComputersForViewer = !AppState.showComputersForViewer;
-            renderCurrentView();
-        });
-    } else {
-        attachDoorEvents();
-        document.getElementById('view-computers-admin-btn')?.addEventListener('click', () => {
-            // Admin can switch to computers view (a separate full view)
-            AppState.currentView = 'computers';
-            renderComputersView();
-        });
+    document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
+        AppState.showComputersForViewer = !AppState.showComputersForViewer;
+        renderCurrentView();
+    });
+    
+    document.getElementById('log-inspection-btn')?.addEventListener('click', () => {
+        logCurrentInspection();
+    });
+}
+
+// ======================== SUPERVISION MODAL (replaces admin login) ========================
+function openSupervisionModal() {
+    loginModal.classList.remove('hidden');
+    document.querySelector('#login-modal h2').textContent = 'REQUEST SUPERVISION';
+    document.querySelector('#login-modal p').textContent = 'Foundation personnel must be present during inspection. Simulate radio request.';
+    passwordInput.value = '';
+    loginError.textContent = '';
+    passwordInput.focus();
+}
+
+function closeSupervisionModal() {
+    loginModal.classList.add('hidden');
+}
+
+function handleSupervisionRequest() {
+    // Simulate supervision granted (in RP, this would be a radio call)
+    const supervisorName = passwordInput.value.trim() || "Unknown Supervisor";
+    AppState.supervisionGranted = true;
+    closeSupervisionModal();
+    
+    // Increment inspection count for HCZ/MCZ zones
+    const zone = AppState.zones[AppState.currentZoneIndex];
+    if (zone && HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()))) {
+        AppState.inspectionCounts[zone.name] = (AppState.inspectionCounts[zone.name] || 0) + 1;
+    }
+    
+    // Add log entry
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        zone: zone ? zone.name : 'Unknown',
+        supervisor: supervisorName,
+        inspector: 'VC&A Agent',
+        type: 'Supervision granted'
+    };
+    AppState.inspectionLog.push(logEntry);
+    
+    statusMsg.innerHTML = `● SUPERVISION GRANTED BY ${supervisorName.toUpperCase()}`;
+    
+    // If a room was pending, open it
+    if (AppState.currentView === 'rooms' && AppState.currentRoomIndex === -1) {
+        // User clicked a room, now supervision granted, we can open it
+        // The click handler will call openRoom again; we just need to re-trigger
     }
 }
 
-function renderComputersView() {
-    // Dedicated computers view for admin (with edit buttons)
+function logCurrentInspection() {
     const zone = AppState.zones[AppState.currentZoneIndex];
     const room = zone.rooms[AppState.currentRoomIndex];
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        zone: zone.name,
+        room: room.name,
+        doorsChecked: room.doors.length,
+        computersChecked: room.computers.length,
+        anomaliesFound: room.computers.filter(c => c.anomalous).length,
+        inspector: 'VC&A Agent'
+    };
+    AppState.inspectionLog.push(logEntry);
     
-    let html = `<div style="margin-bottom:20px;"><button id="back-to-doors-btn" class="btn">← BACK TO DOORS</button></div>`;
-    html += `<ul class="items-list">`;
-    room.computers.forEach((comp, idx) => {
-        html += `
-            <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}">
-                <span class="item-icon">💻</span>
-                <div class="item-info">
-                    <div class="item-id">${comp.id}</div>
-                    <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
-                        ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
-                    </div>
-                </div>
-                <div class="item-actions">
-                    <button class="btn btn-small toggle-anomaly" data-idx="${idx}">⚠️/✅</button>
-                    <button class="btn btn-small btn-danger delete-comp" data-idx="${idx}">🗑️</button>
-                </div>
-            </li>
-        `;
-    });
-    html += '</ul>';
-    html += `<div style="margin-top:20px;"><button id="add-computer-btn" class="btn">➕ ADD COMPUTER</button></div>`;
+    // Generate downloadable log file
+    const logText = JSON.stringify(AppState.inspectionLog, null, 2);
+    const blob = new Blob([logText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inspection_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
     
-    contentArea.innerHTML = html;
-    
-    document.getElementById('back-to-doors-btn')?.addEventListener('click', () => {
-        AppState.currentView = 'doors';
-        renderCurrentView();
-    });
-    attachComputerEvents();
+    statusMsg.innerHTML = '● INSPECTION LOGGED AND DOWNLOADED';
+    setTimeout(() => statusMsg.innerHTML = '● CONNECTED', 2000);
 }
 
 // ======================== NAVIGATION ========================
@@ -354,11 +364,15 @@ function openZone(index) {
     AppState.currentZoneIndex = index;
     AppState.currentRoomIndex = -1;
     AppState.currentView = 'rooms';
-    AppState.showComputersForViewer = false;
+    AppState.supervisionGranted = false; // Reset supervision for new zone
     renderCurrentView();
 }
 
 function openRoom(index) {
+    if (!AppState.supervisionGranted) {
+        openSupervisionModal();
+        return;
+    }
     AppState.currentRoomIndex = index;
     AppState.currentView = 'doors';
     AppState.showComputersForViewer = false;
@@ -370,6 +384,7 @@ function handleBack() {
         AppState.currentView = 'rooms';
         AppState.currentRoomIndex = -1;
         AppState.showComputersForViewer = false;
+        AppState.supervisionGranted = false; // Reset supervision when leaving room
     } else if (AppState.currentView === 'rooms') {
         AppState.currentView = 'zones';
         AppState.currentZoneIndex = -1;
@@ -377,215 +392,9 @@ function handleBack() {
     renderCurrentView();
 }
 
-// ======================== ADMIN EVENTS ========================
-function attachDoorEvents() {
-    if (!AppState.isAdmin) return;
-    const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
-    document.querySelectorAll('.toggle-lock').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = btn.dataset.idx;
-            room.doors[idx].locked = !room.doors[idx].locked;
-            saveDataToAPI();
-            renderCurrentView();
-        });
-    });
-    document.querySelectorAll('.delete-door').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!confirm('Delete this door?')) return;
-            const idx = btn.dataset.idx;
-            room.doors.splice(idx, 1);
-            saveDataToAPI();
-            renderCurrentView();
-        });
-    });
-    document.getElementById('add-door-btn')?.addEventListener('click', () => openAddModal('door'));
-}
-
-function attachComputerEvents() {
-    if (!AppState.isAdmin) return;
-    const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
-    document.querySelectorAll('.toggle-anomaly').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = btn.dataset.idx;
-            room.computers[idx].anomalous = !room.computers[idx].anomalous;
-            saveDataToAPI();
-            renderCurrentView();
-        });
-    });
-    document.querySelectorAll('.delete-comp').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!confirm('Delete this computer?')) return;
-            const idx = btn.dataset.idx;
-            room.computers.splice(idx, 1);
-            saveDataToAPI();
-            renderCurrentView();
-        });
-    });
-    document.getElementById('add-computer-btn')?.addEventListener('click', () => openAddModal('computer'));
-}
-
-// ======================== ADMIN LOGIN ========================
-function openLoginModal() {
-    loginModal.classList.remove('hidden');
-    passwordInput.value = '';
-    loginError.textContent = '';
-    passwordInput.focus();
-}
-function closeLoginModal() { loginModal.classList.add('hidden'); }
-function handleAdminLogin() {
-    const pwd = passwordInput.value.trim();
-    if (pwd === ADMIN_PASSWORD) {
-        AppState.isAdmin = true;
-        closeLoginModal();
-        updateAdminPanel();
-        renderCurrentView();
-        statusMsg.innerHTML = '● ADMINISTRATOR MODE ACTIVE';
-    } else {
-        loginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
-    }
-}
-function logoutAdmin() {
-    AppState.isAdmin = false;
-    updateAdminPanel();
-    renderCurrentView();
-    statusMsg.innerHTML = '● CONNECTED';
-}
-
-// ======================== ADMIN PANEL ========================
-function updateAdminPanel() {
-    if (!AppState.isAdmin) {
-        adminPanel.classList.add('hidden');
-        return;
-    }
-    adminPanel.classList.remove('hidden');
-    let actionsHtml = '';
-    
-    if (AppState.currentView === 'zones') {
-        actionsHtml = `<button id="admin-add-zone" class="btn">➕ NEW ZONE</button>`;
-    } else if (AppState.currentView === 'rooms') {
-        actionsHtml = `
-            <button id="admin-add-room" class="btn">➕ NEW ROOM</button>
-            <button id="admin-delete-zone" class="btn btn-danger">🗑️ DELETE ZONE</button>
-        `;
-    } else if (AppState.currentView === 'doors') {
-        actionsHtml = `
-            <button id="admin-add-door" class="btn">➕ NEW DOOR</button>
-            <button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ DELETE ROOM</button>
-        `;
-    } else if (AppState.currentView === 'computers') {
-        actionsHtml = `
-            <button id="admin-add-computer" class="btn">➕ NEW COMPUTER</button>
-            <button id="admin-delete-room" class="btn btn-danger" style="margin-left:10px;">🗑️ DELETE ROOM</button>
-        `;
-    }
-    
-    adminActions.innerHTML = actionsHtml;
-    
-    document.getElementById('admin-add-zone')?.addEventListener('click', ()=>openAddModal('zone'));
-    document.getElementById('admin-add-room')?.addEventListener('click', ()=>openAddModal('room'));
-    document.getElementById('admin-add-door')?.addEventListener('click', ()=>openAddModal('door'));
-    document.getElementById('admin-add-computer')?.addEventListener('click', ()=>openAddModal('computer'));
-    
-    document.getElementById('admin-delete-zone')?.addEventListener('click', ()=>{
-        if (confirm(`Delete zone "${AppState.zones[AppState.currentZoneIndex].name}"?`)) {
-            AppState.zones.splice(AppState.currentZoneIndex, 1);
-            AppState.currentZoneIndex = -1;
-            AppState.currentView = 'zones';
-            saveDataToAPI();
-            renderCurrentView();
-        }
-    });
-    document.getElementById('admin-delete-room')?.addEventListener('click', ()=>{
-        const zone = AppState.zones[AppState.currentZoneIndex];
-        const room = zone.rooms[AppState.currentRoomIndex];
-        if (confirm(`Delete room "${room.name}"?`)) {
-            zone.rooms.splice(AppState.currentRoomIndex, 1);
-            AppState.currentRoomIndex = -1;
-            AppState.currentView = 'rooms';
-            saveDataToAPI();
-            renderCurrentView();
-        }
-    });
-}
-
-// ======================== ADD MODAL ========================
-let currentAddType = null;
-
-function openAddModal(type) {
-    currentAddType = type;
-    const title = document.getElementById('modal-title');
-    const fieldsDiv = document.getElementById('modal-fields');
-    
-    if (type === 'zone') {
-        title.textContent = 'ADD NEW ZONE';
-        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Zone Name" autocomplete="off">`;
-    } else if (type === 'room') {
-        title.textContent = 'ADD NEW ROOM';
-        fieldsDiv.innerHTML = `<input type="text" id="name-input" class="modal-field" placeholder="Room Name" autocomplete="off">`;
-    } else if (type === 'door') {
-        title.textContent = 'ADD NEW DOOR';
-        fieldsDiv.innerHTML = `
-            <input type="text" id="door-id-input" class="modal-field" placeholder="Door ID" autocomplete="off">
-            <label style="display:flex; align-items:center; gap:10px; margin:10px 0;">
-                <input type="checkbox" id="door-locked-input"> Locked?
-            </label>
-        `;
-    } else if (type === 'computer') {
-        title.textContent = 'ADD NEW COMPUTER';
-        fieldsDiv.innerHTML = `
-            <input type="text" id="comp-id-input" class="modal-field" placeholder="Computer ID" autocomplete="off">
-            <label style="display:flex; align-items:center; gap:10px; margin:10px 0;">
-                <input type="checkbox" id="comp-anomalous-input"> Anomalous?
-            </label>
-        `;
-    }
-    addModal.classList.remove('hidden');
-    setTimeout(() => fieldsDiv.querySelector('input')?.focus(), 100);
-}
-
-function closeAddModal() {
-    addModal.classList.add('hidden');
-    currentAddType = null;
-}
-
-function handleAddConfirm() {
-    if (!AppState.isAdmin) return;
-    
-    if (currentAddType === 'zone') {
-        const name = document.getElementById('name-input')?.value.trim();
-        if (!name) { alert('Name is required'); return; }
-        AppState.zones.push({ name, rooms: [] });
-        saveDataToAPI();
-        closeAddModal();
-        renderCurrentView();
-    } else if (currentAddType === 'room' && AppState.currentZoneIndex !== -1) {
-        const name = document.getElementById('name-input')?.value.trim();
-        if (!name) { alert('Name is required'); return; }
-        AppState.zones[AppState.currentZoneIndex].rooms.push({ name, doors: [], computers: [] });
-        saveDataToAPI();
-        closeAddModal();
-        renderCurrentView();
-    } else if (currentAddType === 'door' && AppState.currentRoomIndex !== -1) {
-        const id = document.getElementById('door-id-input')?.value.trim();
-        if (!id) { alert('ID is required'); return; }
-        const locked = document.getElementById('door-locked-input')?.checked || false;
-        const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
-        room.doors.push({ id, locked });
-        saveDataToAPI();
-        closeAddModal();
-        renderCurrentView();
-    } else if (currentAddType === 'computer' && AppState.currentRoomIndex !== -1) {
-        const id = document.getElementById('comp-id-input')?.value.trim();
-        if (!id) { alert('ID is required'); return; }
-        const anomalous = document.getElementById('comp-anomalous-input')?.checked || false;
-        const room = AppState.zones[AppState.currentZoneIndex].rooms[AppState.currentRoomIndex];
-        room.computers.push({ id, anomalous });
-        saveDataToAPI();
-        closeAddModal();
-        renderCurrentView();
-    }
-}
+// ======================== STUB FUNCTIONS (admin removed) ========================
+function openAddModal(type) {} // Not used
+function closeAddModal() { addModal.classList.add('hidden'); }
+function handleAddConfirm() {} // Not used
+function attachDoorEvents() {} // Not used
+function attachComputerEvents() {} // Not used
