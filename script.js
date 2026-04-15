@@ -7,8 +7,7 @@
 let appState = {
     session: {
         zone: null,
-        terminalsInspected: 0,
-        authOfficer: null      // name of person who authorized current access (for MCZ/HCZ)
+        terminalsInspected: 0
     },
     currentScan: {
         inProgress: false,
@@ -27,10 +26,10 @@ const zoneSelect = document.getElementById('zoneSelect');
 const scpInput = document.getElementById('scpId');
 const terminalInput = document.getElementById('terminalId');
 const supervisorInput = document.getElementById('supervisor');
+const authOfficerInput = document.getElementById('authOfficer');
 const scanBtn = document.getElementById('scanBtn');
 const saveBtn = document.getElementById('saveInspectionBtn');
 const resetAccessBtn = document.getElementById('requestNewAccessBtn');
-const authOfficerInput = document.getElementById('authOfficerInput');
 const accessResetArea = document.getElementById('accessResetArea');
 const currentZoneSpan = document.getElementById('currentZone');
 const terminalCountSpan = document.getElementById('terminalCount');
@@ -94,11 +93,11 @@ function addInspectionLog(inspectionData) {
         scpId: inspectionData.scpId,
         terminalId: inspectionData.terminalId,
         supervisor: inspectionData.supervisor,
+        authOfficer: inspectionData.authOfficer || null,
         hardwareChecked: inspectionData.hardwareChecked,
         scanResult: inspectionData.scanResult,
         anomalyNote: inspectionData.anomalyNote || null,
-        sessionTerminalCount: appState.session.terminalsInspected,
-        authOfficer: appState.session.authOfficer || null   // store who authorized current access (if MCZ/HCZ)
+        sessionTerminalCount: appState.session.terminalsInspected
     };
     appState.logs.push(newLog);
     saveLogsToLocalStorage();
@@ -164,16 +163,12 @@ function updateSessionZone() {
     if (newZone === "") return;
     
     const oldZone = appState.session.zone;
-    // If zone changes, reset terminal counter and auth officer (if entering MCZ/HCZ)
     if (oldZone !== newZone) {
         if (newZone === 'MCZ' || newZone === 'HCZ') {
             appState.session.terminalsInspected = 0;
-            appState.session.authOfficer = null;
-            authOfficerInput.value = '';
             accessResetArea.style.display = "flex";
         } else {
             appState.session.terminalsInspected = 0;
-            appState.session.authOfficer = null;
             accessResetArea.style.display = "none";
         }
         appState.session.zone = newZone;
@@ -189,36 +184,35 @@ function updateSessionZone() {
     currentZoneSpan.innerText = newZone;
     terminalCountSpan.innerText = appState.session.terminalsInspected;
     
-    // Check limit
     if ((newZone === 'MCZ' || newZone === 'HCZ') && appState.session.terminalsInspected >= 2) {
         alert("WARNING: You have reached the limit of 2 terminals inspected in this zone. Request new access with authorization officer (Clause 10.A).");
         scanBtn.disabled = true;
         saveBtn.disabled = true;
     } else {
         scanBtn.disabled = false;
-        saveBtn.disabled = true; // enabled after scan
+        saveBtn.disabled = true;
     }
 }
 
-// Request new access (reset counter) with authorization officer name
+// Request new access: prompt for authorization officer name, store in field, reset counter
 function requestNewAccess() {
     if (appState.session.zone !== 'MCZ' && appState.session.zone !== 'HCZ') {
         alert("This function is only for MCZ/HCZ.");
         return;
     }
-    const officerName = authOfficerInput.value.trim();
+    const officerName = prompt("Enter the Authorization Officer name who approved this new access:");
     if (!officerName) {
         alert("Authorization Officer name is required to request new access (per contract).");
         return;
     }
-    // Reset counter and store officer name
+    // Set the auth officer field
+    authOfficerInput.value = officerName;
+    // Reset terminal counter
     appState.session.terminalsInspected = 0;
-    appState.session.authOfficer = officerName;
     terminalCountSpan.innerText = "0";
     scanBtn.disabled = false;
     saveBtn.disabled = true;
     alert(`New access authorized by ${officerName}. You may inspect up to 2 terminals in this zone.`);
-    // Optional: log this access request? We'll store it in next inspection's log.
 }
 
 // 10-second scan simulation
@@ -280,7 +274,7 @@ function saveInspection() {
     }
     const scanResultElem = document.querySelector('input[name="scanResult"]:checked');
     if (!scanResultElem) {
-        alert("Select scan result (Nominal / Anomaly).");
+        alert("Select scan result (Clear / Anomaly).");
         return;
     }
     const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
@@ -289,13 +283,13 @@ function saveInspection() {
         scpId: scpInput.value.trim(),
         terminalId: terminalInput.value.trim(),
         supervisor: supervisorInput.value.trim(),
+        authOfficer: authOfficerInput.value.trim() || null,
         hardwareChecked: hardwareChecked,
         scanResult: scanResultElem.value,
         anomalyNote: (scanResultElem.value === 'ANOMALY') ? anomalyNote.value.trim() : null
     };
     addInspectionLog(inspection);
     
-    // Increment terminal counter for MCZ/HCZ
     if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
         appState.session.terminalsInspected++;
         terminalCountSpan.innerText = appState.session.terminalsInspected;
@@ -305,7 +299,6 @@ function saveInspection() {
             saveBtn.disabled = true;
         }
     }
-    // Reset UI
     resultsArea.style.display = "none";
     saveBtn.disabled = true;
 }
