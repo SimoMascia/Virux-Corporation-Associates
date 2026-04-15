@@ -1,308 +1,525 @@
-// ==================== CONFIGURAZIONE ====================
-const JSONBIN_BIN_ID = "69df665d36566621a8b694e5";          // Sostituisci
-const JSONBIN_API_KEY = "$2a$10$RvtAYcVttTgFZj1lk9gy7uG4jjzKPztlQOwZ10zcS1eKOb0fACdO2";     // Sostituisci con Access Key (non Master Key)
+// ======================== CONFIGURATION ========================
+const BIN_ID = "69de75ce856a6821893343d9";               // Your Bin ID
+const MASTER_KEY = "$2a$10$RvtAYcVttTgFZj1lk9gy7uG4jjzKPztlQOwZ10zcS1eKOb0fACdO2";          // Your public Master Key
+const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
+// ===============================================================
 
-// Password (cambiale a piacere)
-const INSPECTOR_PASSWORD = "VC&A-inspect-2026";
-const ADMIN_PASSWORD = "VC&A-admin-FAD";
+// Access password
+const VIEWER_PASSWORD = "VC&A-VIEWER";
 
-const BASE_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+// HCZ/MCZ zone keywords (case-insensitive)
+const HCZ_MCZ_KEYWORDS = ["hcz", "mcz", "heavy containment", "medium containment"];
 
-// Stato globale
-let appData = { zones: [] };
-let inspectionLogs = [];
-let auth = { inspector: false, admin: false };
+// Max computers to inspect per HCZ/MCZ entry
+const MAX_COMPUTERS_PER_ENTRY = 2;
 
-// Cache per elementi DOM
-let domCache = {};
-
-// Debounce timer per salvataggi
-let saveTimeout = null;
-function debouncedSave() {
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => saveData(), 800);
-}
-
-// Helper: fetch dati
-async function fetchData() {
-    try {
-        const res = await fetch(BASE_URL, {
-            headers: { "X-Master-Key": JSONBIN_API_KEY }
-        });
-        const json = await res.json();
-        appData = json.record || { zones: [] };
-        if (!appData.zones) appData.zones = [];
-        renderAll();
-    } catch (err) {
-        console.error("Fetch error:", err);
-        alert("Failed to sync with JSONbin. Check API key/bin ID.");
-    }
-}
-
-// Salvataggio su JSONbin
-async function saveData() {
-    try {
-        await fetch(BASE_URL, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Master-Key": JSONBIN_API_KEY
-            },
-            body: JSON.stringify(appData)
-        });
-        console.log("Data saved to JSONbin");
-    } catch (err) {
-        console.error("Save error:", err);
-        alert("Failed to save to JSONbin.");
-    }
-}
-
-// ========== RENDER OTTIMIZZATO ==========
-function renderAll() {
-    if (auth.admin) {
-        renderZoneSelect();
-        renderAdminPanel(currentAdminLevel);
-    } else if (auth.inspector) {
-        renderZoneSelect();
-        // Non ricarico l'admin panel
-    }
-    renderLogs();
-    // Se la vista inspector è attiva e abbiamo una selezione, aggiorna porte
-    const activeView = document.querySelector('.view.active')?.id;
-    if (activeView === 'inspectorView' && auth.inspector) {
-        const zoneId = document.getElementById("zoneSelect")?.value;
-        const roomId = document.getElementById("roomSelect")?.value;
-        const compId = document.getElementById("computerSelect")?.value;
-        if (zoneId && roomId && compId) renderPorts(zoneId, roomId, compId);
-    }
-}
-
-// Render delle select (zone, stanze, computer) solo se necessario
-let lastZoneSelectHtml = "";
-function renderZoneSelect() {
-    const zoneSelect = document.getElementById("zoneSelect");
-    if (!zoneSelect) return;
-    const newHtml = '<option value="">-- Select Zone --</option>' + 
-        appData.zones.map(zone => `<option value="${zone.id}">${zone.name} (${zone.id})</option>`).join('');
-    if (newHtml !== lastZoneSelectHtml) {
-        zoneSelect.innerHTML = newHtml;
-        lastZoneSelectHtml = newHtml;
-    }
-    // Mantieni gli eventi (non li ricreo, uso delega)
-}
-
-// Render porte (ottimizzato)
-function renderPorts(zoneId, roomId, computerId) {
-    const container = document.getElementById("portsContainer");
-    const zone = appData.zones.find(z => z.id === zoneId);
-    const room = zone?.rooms.find(r => r.id === roomId);
-    const computer = room?.computers.find(c => c.id === computerId);
-    if (!computer || !computer.ports.length) {
-        container.innerHTML = '<p class="placeholder">No ports defined for this terminal.</p>';
-        return;
-    }
-    const inspector = document.getElementById("inspectorName")?.value || "Unknown";
-    container.innerHTML = computer.ports.map(port => `
-        <div class="port-item" data-port-id="${port.id}">
-            <div class="port-header">
-                <span class="port-name">🔌 ${port.name}</span>
-                <span class="status-badge status-${port.status || 'pending'}">${(port.status || 'PENDING').toUpperCase()}</span>
-            </div>
-            <div class="port-details">
-                <div>Last check: ${port.lastCheck ? new Date(port.lastCheck).toLocaleString() : 'Never'}</div>
-                <div>Inspector: ${port.inspector || '-'}</div>
-                <div>Notes: ${port.notes || '-'}</div>
-            </div>
-            <div class="port-actions">
-                <select class="status-select" data-portid="${port.id}">
-                    <option value="pending" ${port.status === 'pending' ? 'selected' : ''}>Pending</option>
-                    <option value="clean" ${port.status === 'clean' ? 'selected' : ''}>Clean</option>
-                    <option value="anomalous" ${port.status === 'anomalous' ? 'selected' : ''}>Anomalous</option>
-                </select>
-                <input type="text" class="notes-input" data-portid="${port.id}" placeholder="Add notes" value="${port.notes || ''}">
-                <button class="update-port" data-zone="${zoneId}" data-room="${roomId}" data-computer="${computerId}" data-port="${port.id}">✓ Update Checkup</button>
-            </div>
-        </div>
-    `).join('');
+const AppState = {
+    zones: [],
+    isLoggedIn: false,
+    currentView: 'zones',
+    currentZoneIndex: -1,
+    currentRoomIndex: -1,
+    showComputersForViewer: false,
     
-    // Attacco eventi con delega sul container (più veloce)
-    container.querySelectorAll('.update-port').forEach(btn => {
-        btn.removeEventListener('click', handleUpdatePort);
-        btn.addEventListener('click', handleUpdatePort);
+    // Contract compliance
+    hczInspectedComputers: {},      // { zoneName: [computerIds] } per tracciare quali computer sono stati ispezionati in questo ingresso
+    inspectionLog: [],
+    currentSupervisor: null,        // Nome del supervisore attuale
+    supervisionActive: false        // true se la supervisione è stata concessa per la sessione corrente
+};
+
+// DOM Elements
+const initialOverlay = document.getElementById('initial-login-overlay');
+const mainContainer = document.getElementById('main-container');
+const initialPasswordInput = document.getElementById('initial-password-input');
+const initialLoginBtn = document.getElementById('initial-login-btn');
+const initialLoginError = document.getElementById('initial-login-error');
+const contentArea = document.getElementById('content-area');
+const breadcrumbSpan = document.getElementById('zone-title');
+const backBtn = document.getElementById('back-btn');
+const refreshBtn = document.getElementById('refresh-btn');
+const loginBtn = document.getElementById('login-btn'); // Diventa "Request Supervision"
+const logoutAdminBtn = document.getElementById('logout-admin');
+const adminPanel = document.getElementById('admin-panel');
+const adminActions = document.getElementById('admin-actions');
+const statusMsg = document.getElementById('status-message');
+const loginModal = document.getElementById('login-modal');
+const addModal = document.getElementById('add-modal');
+const passwordInput = document.getElementById('password-input');
+const loginError = document.getElementById('login-error');
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateClock();
+    setInterval(updateClock, 1000);
+    setupEventListeners();
+});
+
+function updateClock() {
+    const now = new Date();
+    const timeElement = document.getElementById('system-time');
+    if (timeElement) timeElement.textContent = now.toLocaleTimeString('en-GB');
+}
+
+function setupEventListeners() {
+    initialLoginBtn.addEventListener('click', handleInitialLogin);
+    initialPasswordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleInitialLogin();
+    });
+
+    backBtn.addEventListener('click', handleBack);
+    refreshBtn.addEventListener('click', () => loadDataFromAPI());
+    
+    // Repurpose login button for supervision request
+    loginBtn.textContent = '📡 REQUEST SUPERVISION';
+    loginBtn.addEventListener('click', openSupervisionModal);
+    
+    // Hide admin elements permanently
+    adminPanel.classList.add('hidden');
+    if (logoutAdminBtn) logoutAdminBtn.style.display = 'none';
+    
+    // Modal handlers
+    document.getElementById('cancel-login').addEventListener('click', closeSupervisionModal);
+    document.getElementById('confirm-login').addEventListener('click', handleSupervisionRequest);
+    document.getElementById('cancel-add').addEventListener('click', closeAddModal);
+    document.getElementById('confirm-add').addEventListener('click', handleAddConfirm);
+    
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSupervisionRequest(); });
+    }
+}
+
+// ======================== INITIAL LOGIN ========================
+function handleInitialLogin() {
+    const pwd = initialPasswordInput.value.trim();
+    if (pwd === VIEWER_PASSWORD) {
+        AppState.isLoggedIn = true;
+        initialOverlay.style.display = 'none';
+        mainContainer.style.display = 'flex';
+        loadDataFromAPI();
+    } else {
+        initialLoginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
+    }
+}
+
+// ======================== API (READ ONLY) ========================
+async function loadDataFromAPI() {
+    if (!AppState.isLoggedIn) return;
+    try {
+        statusMsg.innerHTML = '● SYNCING...';
+        const response = await fetch(READ_URL, { headers: { 'X-Master-Key': MASTER_KEY } });
+        if (!response.ok) throw new Error('Network error');
+        const data = await response.json();
+        AppState.zones = data.record.zones || [];
+        statusMsg.innerHTML = '● CONNECTED';
+        renderCurrentView();
+    } catch (error) {
+        console.error(error);
+        statusMsg.innerHTML = '● CONNECTION ERROR';
+        if (AppState.zones.length === 0) {
+            AppState.zones = [{ name: "Test Zone", rooms: [] }];
+            renderCurrentView();
+        }
+    }
+}
+
+// ======================== UTILITY ========================
+function isHCZMCZZone(zoneName) {
+    return HCZ_MCZ_KEYWORDS.some(kw => zoneName.toLowerCase().includes(kw.toLowerCase()));
+}
+
+function getInspectedComputersCount(zoneName) {
+    const list = AppState.hczInspectedComputers[zoneName] || [];
+    return list.length;
+}
+
+function canInspectComputer(zoneName, computerId) {
+    if (!isHCZMCZZone(zoneName)) return true;
+    const inspected = AppState.hczInspectedComputers[zoneName] || [];
+    // Se il computer è già stato ispezionato in questo ingresso, non conta di nuovo
+    if (inspected.includes(computerId)) return true;
+    return inspected.length < MAX_COMPUTERS_PER_ENTRY;
+}
+
+function markComputerInspected(zoneName, computerId) {
+    if (!isHCZMCZZone(zoneName)) return;
+    if (!AppState.hczInspectedComputers[zoneName]) {
+        AppState.hczInspectedComputers[zoneName] = [];
+    }
+    const list = AppState.hczInspectedComputers[zoneName];
+    if (!list.includes(computerId) && list.length < MAX_COMPUTERS_PER_ENTRY) {
+        list.push(computerId);
+    }
+}
+
+function resetHCZEntry(zoneName) {
+    if (isHCZMCZZone(zoneName)) {
+        AppState.hczInspectedComputers[zoneName] = [];
+        // Log the entry request
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            zone: zoneName,
+            action: 'New HCZ/MCZ entry requested',
+            supervisor: AppState.currentSupervisor || 'Not supervised',
+            inspector: 'VC&A Agent'
+        };
+        AppState.inspectionLog.push(logEntry);
+        statusMsg.innerHTML = `● NEW ENTRY GRANTED FOR ${zoneName}`;
+        setTimeout(() => statusMsg.innerHTML = '● CONNECTED', 2000);
+    }
+}
+
+// ======================== RENDERING ========================
+function renderCurrentView() {
+    if (!AppState.isLoggedIn) return;
+    if (AppState.currentView === 'zones') {
+        renderZonesView();
+        breadcrumbSpan.textContent = 'ALL ZONES';
+        backBtn.disabled = true;
+    } else if (AppState.currentView === 'rooms' && AppState.currentZoneIndex !== -1) {
+        renderRoomsView();
+        breadcrumbSpan.textContent = `${AppState.zones[AppState.currentZoneIndex].name} · ROOMS`;
+        backBtn.disabled = false;
+    } else if (AppState.currentView === 'doors' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
+        renderDoorsView();
+        const zone = AppState.zones[AppState.currentZoneIndex];
+        const room = zone.rooms[AppState.currentRoomIndex];
+        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · ${AppState.showComputersForViewer ? 'COMPUTERS' : 'DOORS'}`;
+        backBtn.disabled = false;
+    }
+    
+    // Update supervision status in footer
+    if (AppState.supervisionActive && AppState.currentSupervisor) {
+        statusMsg.innerHTML = `● SUPERVISED BY ${AppState.currentSupervisor.toUpperCase()}`;
+    } else if (AppState.currentView !== 'zones' && !AppState.supervisionActive) {
+        statusMsg.innerHTML = '● SUPERVISION REQUIRED';
+    } else {
+        statusMsg.innerHTML = '● CONNECTED';
+    }
+}
+
+function renderZonesView() {
+    let html = '<div class="zone-grid">';
+    AppState.zones.forEach((zone, index) => {
+        const totalRooms = zone.rooms.length;
+        let totalDoors = 0, totalComputers = 0, hasAnomaly = false;
+        zone.rooms.forEach(room => {
+            totalDoors += room.doors.length;
+            totalComputers += room.computers.length;
+            if (room.computers.some(c => c.anomalous)) hasAnomaly = true;
+        });
+        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
+        const isHCZ = isHCZMCZZone(zone.name);
+        const inspectedCount = getInspectedComputersCount(zone.name);
+        const limitReached = isHCZ && inspectedCount >= MAX_COMPUTERS_PER_ENTRY;
+        
+        html += `
+            <div class="zone-card ${anomalyClass}" data-zone-index="${index}" style="position:relative;">
+                <h3>${zone.name}</h3>
+                <div class="zone-stats">
+                    🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} rooms
+                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
+                    ${isHCZ ? `<br><span style="color:#f1c40f;">🔒 HCZ/MCZ: ${inspectedCount}/${MAX_COMPUTERS_PER_ENTRY} terminals inspected</span>` : ''}
+                </div>
+                ${limitReached ? '<div style="position:absolute; top:5px; right:5px; color:#e74c3c;">⛔ LIMIT</div>' : ''}
+                ${isHCZ ? `
+                <div style="margin-top:10px;">
+                    <button class="btn-small btn request-entry-btn" data-zone-name="${zone.name}">🔄 Request New Entry</button>
+                </div>` : ''}
+            </div>
+        `;
+    });
+    html += '</div>';
+    contentArea.innerHTML = html;
+    
+    document.querySelectorAll('.zone-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+            // Ignore if clicking on the button inside
+            if (e.target.classList.contains('request-entry-btn')) return;
+            const idx = card.dataset.zoneIndex;
+            if (idx !== undefined) {
+                openZone(parseInt(idx));
+            }
+        });
+    });
+    
+    document.querySelectorAll('.request-entry-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const zoneName = btn.dataset.zoneName;
+            if (confirm(`Request new entry for ${zoneName}? This will reset the terminal inspection count.`)) {
+                resetHCZEntry(zoneName);
+                renderCurrentView();
+            }
+        });
     });
 }
 
-function handleUpdatePort(e) {
-    const btn = e.currentTarget;
-    const zoneId = btn.dataset.zone;
-    const roomId = btn.dataset.room;
-    const computerId = btn.dataset.computer;
-    const portId = btn.dataset.port;
-    const portDiv = btn.closest('.port-item');
-    const newStatus = portDiv.querySelector('.status-select').value;
-    const newNotes = portDiv.querySelector('.notes-input').value;
+function renderRoomsView() {
+    const zone = AppState.zones[AppState.currentZoneIndex];
+    let html = `<div style="margin-bottom:15px;"><h2 style="color:#d4ede8;">Rooms in ${zone.name}</h2></div>`;
     
-    const zone = appData.zones.find(z => z.id === zoneId);
-    const room = zone?.rooms.find(r => r.id === roomId);
-    const computer = room?.computers.find(c => c.id === computerId);
-    const port = computer?.ports.find(p => p.id === portId);
-    if (!port) return;
+    // Show supervision request if not active
+    if (!AppState.supervisionActive) {
+        html += `<div style="margin-bottom:20px; padding:10px; background:rgba(192,57,43,0.2); border-left:4px solid #c0392b;">
+            <strong>⚠️ Foundation supervision required to proceed.</strong> Click "REQUEST SUPERVISION" below.
+        </div>`;
+    } else {
+        html += `<div style="margin-bottom:20px; padding:10px; background:rgba(29,116,131,0.2); border-left:4px solid #1D7483;">
+            ✅ Supervised by: <strong>${AppState.currentSupervisor}</strong>
+        </div>`;
+    }
     
-    port.status = newStatus;
-    port.notes = newNotes;
-    port.lastCheck = new Date().toISOString();
-    port.inspector = document.getElementById("inspectorName").value || "Unknown";
+    html += '<div class="zone-grid">';
+    zone.rooms.forEach((room, idx) => {
+        const hasAnomaly = room.computers.some(c => c.anomalous);
+        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
+        const doorsCount = room.doors.length;
+        const computersCount = room.computers.length;
+        
+        html += `
+            <div class="zone-card ${anomalyClass}" data-room-index="${idx}">
+                <h3>${room.name}</h3>
+                <div class="zone-stats">
+                    🚪 ${doorsCount} door${doorsCount !== 1 ? 's' : ''} &nbsp;|&nbsp; 💻 ${computersCount} computer${computersCount !== 1 ? 's' : ''}
+                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    contentArea.innerHTML = html;
     
-    inspectionLogs.unshift({
+    document.querySelectorAll('.zone-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+            const idx = card.dataset.roomIndex;
+            if (idx !== undefined) {
+                if (!AppState.supervisionActive) {
+                    openSupervisionModal();
+                    return;
+                }
+                openRoom(parseInt(idx));
+            }
+        });
+    });
+}
+
+function renderDoorsView() {
+    const zone = AppState.zones[AppState.currentZoneIndex];
+    const room = zone.rooms[AppState.currentRoomIndex];
+    const isHCZ = isHCZMCZZone(zone.name);
+    const inspectedCount = getInspectedComputersCount(zone.name);
+    
+    let html = '';
+    
+    // Supervision banner
+    html += `<div style="margin-bottom:15px; padding:8px; background:rgba(29,116,131,0.2); border-left:4px solid #1D7483;">
+        ✅ Supervised by: <strong>${AppState.currentSupervisor}</strong> | Zone: ${zone.name} ${isHCZ ? `(HCZ/MCZ - ${inspectedCount}/${MAX_COMPUTERS_PER_ENTRY} terminals inspected)` : ''}
+    </div>`;
+    
+    // Toggle button for computers
+    html += `
+        <div style="margin-bottom:20px; display: flex; gap: 10px;">
+            <button id="toggle-viewer-view" class="btn">
+                ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
+            </button>
+            <button id="log-inspection-btn" class="btn" style="background: #1D7483;">📋 LOG INSPECTION</button>
+        </div>
+    `;
+    
+    if (AppState.showComputersForViewer) {
+        // Computer list
+        html += `<ul class="items-list">`;
+        room.computers.forEach((comp) => {
+            const canInspect = canInspectComputer(zone.name, comp.id);
+            const alreadyInspected = AppState.hczInspectedComputers[zone.name]?.includes(comp.id) || false;
+            
+            html += `
+                <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}" data-computer-id="${comp.id}">
+                    <span class="item-icon">💻</span>
+                    <div class="item-info">
+                        <div class="item-id">${comp.id}</div>
+                        <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
+                            ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
+                        </div>
+                    </div>
+                    ${isHCZ && !canInspect && !alreadyInspected ? '<span style="color:#e74c3c; margin-right:10px;">⛔ LIMIT REACHED</span>' : ''}
+                    <button class="btn-small btn inspect-comp-btn" data-computer-id="${comp.id}" ${!canInspect && !alreadyInspected ? 'disabled' : ''}>
+                        🔍 INSPECT
+                    </button>
+                </li>
+            `;
+        });
+        html += '</ul>';
+    } else {
+        // Doors list
+        html += `<ul class="items-list">`;
+        room.doors.forEach((door) => {
+            html += `
+                <li class="item-row door">
+                    <span class="item-icon">🚪</span>
+                    <div class="item-info">
+                        <div class="item-id">${door.id}</div>
+                        <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
+                            ${door.locked ? 'LOCKED' : 'UNLOCKED'}
+                        </div>
+                    </div>
+                </li>
+            `;
+        });
+        html += '</ul>';
+    }
+    
+    contentArea.innerHTML = html;
+    
+    document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
+        AppState.showComputersForViewer = !AppState.showComputersForViewer;
+        renderCurrentView();
+    });
+    
+    document.getElementById('log-inspection-btn')?.addEventListener('click', () => {
+        logCurrentInspection();
+    });
+    
+    // Inspect computer buttons
+    document.querySelectorAll('.inspect-comp-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const computerId = btn.dataset.computerId;
+            if (!AppState.supervisionActive) {
+                alert('Supervision required.');
+                return;
+            }
+            const zoneName = AppState.zones[AppState.currentZoneIndex].name;
+            if (!canInspectComputer(zoneName, computerId)) {
+                alert(`Cannot inspect more than ${MAX_COMPUTERS_PER_ENTRY} terminals per HCZ/MCZ entry. Request new entry.`);
+                return;
+            }
+            markComputerInspected(zoneName, computerId);
+            
+            // Log inspection
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                zone: zoneName,
+                room: room.name,
+                computer: computerId,
+                action: 'Inspected',
+                supervisor: AppState.currentSupervisor,
+                inspector: 'VC&A Agent'
+            };
+            AppState.inspectionLog.push(logEntry);
+            
+            alert(`Terminal ${computerId} inspected.`);
+            renderCurrentView();
+        });
+    });
+}
+
+// ======================== SUPERVISION MODAL ========================
+function openSupervisionModal() {
+    loginModal.classList.remove('hidden');
+    document.querySelector('#login-modal h2').textContent = 'REQUEST FOUNDATION SUPERVISION';
+    document.querySelector('#login-modal p').textContent = 'Enter supervisor name (simulate radio request)';
+    passwordInput.placeholder = 'Supervisor Name';
+    passwordInput.value = '';
+    loginError.textContent = '';
+    passwordInput.focus();
+}
+
+function closeSupervisionModal() {
+    loginModal.classList.add('hidden');
+}
+
+function handleSupervisionRequest() {
+    const supervisorName = passwordInput.value.trim();
+    if (!supervisorName) {
+        loginError.textContent = 'Supervisor name required.';
+        return;
+    }
+    AppState.supervisionActive = true;
+    AppState.currentSupervisor = supervisorName;
+    closeSupervisionModal();
+    
+    // Log supervision start
+    const zone = AppState.currentZoneIndex !== -1 ? AppState.zones[AppState.currentZoneIndex] : null;
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        zone: zone ? zone.name : 'N/A',
+        supervisor: supervisorName,
+        action: 'Supervision granted',
+        inspector: 'VC&A Agent'
+    };
+    AppState.inspectionLog.push(logEntry);
+    
+    statusMsg.innerHTML = `● SUPERVISION ACTIVE: ${supervisorName.toUpperCase()}`;
+    renderCurrentView();
+}
+
+function logCurrentInspection() {
+    const zone = AppState.zones[AppState.currentZoneIndex];
+    const room = zone.rooms[AppState.currentRoomIndex];
+    const logEntry = {
         timestamp: new Date().toISOString(),
         zone: zone.name,
         room: room.name,
-        computer: computer.name,
-        port: port.name,
-        status: newStatus,
-        notes: newNotes,
-        inspector: port.inspector
-    });
-    if (inspectionLogs.length > 200) inspectionLogs.pop();
+        doorsChecked: room.doors.length,
+        computersChecked: room.computers.length,
+        anomaliesFound: room.computers.filter(c => c.anomalous).length,
+        supervisor: AppState.currentSupervisor || 'None',
+        inspector: 'VC&A Agent'
+    };
+    AppState.inspectionLog.push(logEntry);
     
-    debouncedSave();  // salvataggio differito
-    renderPorts(zoneId, roomId, computerId);  // refresh solo porte
-    renderLogs();
-}
-
-// ========== ADMIN PANEL OTTIMIZZATO ==========
-let currentAdminLevel = "zones";
-function renderAdminPanel(level) {
-    if (!auth.admin) return;
-    currentAdminLevel = level;
-    const panel = document.getElementById("adminPanel");
-    if (!panel) return;
-    
-    // Generazione HTML in base al livello (struttura simile a prima ma più snella)
-    if (level === "zones") {
-        panel.innerHTML = `
-            <h3>Manage Zones</h3>
-            <div class="form-group"><input type="text" id="newZoneName" placeholder="Zone name"><input type="text" id="newZoneId" placeholder="Unique ID"></div>
-            <button id="addZoneBtn">+ Add Zone</button>
-            <ul id="zonesList">${appData.zones.map(z => `<li>${z.name} (${z.id}) <button class="delete-zone" data-id="${z.id}">❌</button></li>`).join('')}</ul>
-        `;
-        document.getElementById("addZoneBtn")?.addEventListener("click", async () => {
-            const name = document.getElementById("newZoneName").value;
-            const id = document.getElementById("newZoneId").value;
-            if (!name || !id) return alert("Name and ID required");
-            appData.zones.push({ id, name, rooms: [] });
-            await saveData();
-            renderAdminPanel(currentAdminLevel);
-            renderZoneSelect();
-        });
-        document.querySelectorAll(".delete-zone").forEach(btn => {
-            btn.addEventListener("click", async (e) => {
-                const id = btn.dataset.id;
-                appData.zones = appData.zones.filter(z => z.id !== id);
-                await saveData();
-                renderAdminPanel(currentAdminLevel);
-                renderZoneSelect();
-            });
-        });
-    }
-    // ... (gli altri livelli Rooms, Computers, Ports sono simili al codice originale ma ottimizzati con delega eventi)
-    // Per brevità li ometto qui, ma posso fornirli completi se necessario.
-    // La logica è identica a prima, ma senza ricreare l'intero DOM dell'admin ogni volta che si cambia scheda.
-}
-
-// ========== GESTIONE AUTENTICAZIONE ==========
-function requireAuth(role, callback) {
-    if (role === 'inspector' && auth.inspector) {
-        callback();
-    } else if (role === 'admin' && auth.admin) {
-        callback();
-    } else {
-        const pwd = prompt(`Enter ${role} password:`);
-        if (pwd === (role === 'inspector' ? INSPECTOR_PASSWORD : ADMIN_PASSWORD)) {
-            if (role === 'inspector') auth.inspector = true;
-            else auth.admin = true;
-            callback();
-            renderAll();  // aggiorna UI dopo login
-        } else {
-            alert("Wrong password. Access denied.");
-            // Rimani sulla vista precedente
-            const previousView = auth.inspector ? 'inspector' : (auth.admin ? 'admin' : null);
-            if (previousView) switchToView(previousView);
-            else switchToView('inspector'); // fallback
-        }
-    }
-}
-
-function switchToView(viewName) {
-    if (viewName === 'inspector') {
-        requireAuth('inspector', () => {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('inspectorView').classList.add('active');
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelector('.nav-btn[data-view="inspector"]').classList.add('active');
-            renderAll();
-        });
-    } else if (viewName === 'admin') {
-        requireAuth('admin', () => {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('adminView').classList.add('active');
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelector('.nav-btn[data-view="admin"]').classList.add('active');
-            renderAdminPanel(currentAdminLevel);
-            renderAll();
-        });
-    } else if (viewName === 'logs') {
-        // Logs può essere visto da entrambi (inspector e admin)
-        if (!auth.inspector && !auth.admin) {
-            requireAuth('inspector', () => {
-                document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-                document.getElementById('logsView').classList.add('active');
-                renderLogs();
-            });
-        } else {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('logsView').classList.add('active');
-            renderLogs();
-        }
-    }
-}
-
-// ========== NAVIGAZIONE ==========
-document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const view = btn.dataset.view;
-        switchToView(view);
-    });
-});
-
-// ========== EXPORT E SYNC ==========
-document.getElementById("syncDataBtn")?.addEventListener("click", fetchData);
-document.getElementById("exportDataBtn")?.addEventListener("click", () => {
-    const dataStr = JSON.stringify(appData, null, 2);
-    const blob = new Blob([dataStr], {type: "application/json"});
+    const logText = JSON.stringify(AppState.inspectionLog, null, 2);
+    const blob = new Blob([logText], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = `vca_data_${new Date().toISOString()}.json`;
+    a.download = `inspection_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-});
-document.getElementById("exportLogsBtn")?.addEventListener("click", () => {
-    let csv = "Timestamp,Zone,Room,Computer,Port,Status,Inspector,Notes\n";
-    inspectionLogs.forEach(log => {
-        csv += `"${log.timestamp}","${log.zone}","${log.room}","${log.computer}","${log.port}","${log.status}","${log.inspector}","${log.notes.replace(/"/g, '""')}"\n`;
-    });
-    const blob = new Blob([csv], {type: "text/csv"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `vca_inspections_${new Date().toISOString()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-});
+    
+    statusMsg.innerHTML = '● INSPECTION LOGGED AND DOWNLOADED';
+    setTimeout(() => statusMsg.innerHTML = `● SUPERVISED BY ${AppState.currentSupervisor?.toUpperCase() || 'NONE'}`, 2000);
+}
 
-// Inizializza
-fetchData();
+// ======================== NAVIGATION ========================
+function openZone(index) {
+    AppState.currentZoneIndex = index;
+    AppState.currentRoomIndex = -1;
+    AppState.currentView = 'rooms';
+    AppState.supervisionActive = false; // Reset supervision when changing zone
+    AppState.currentSupervisor = null;
+    AppState.showComputersForViewer = false;
+    renderCurrentView();
+}
 
-// Helper per renderLogs (semplice, rimane invariato)
-function renderLogs() { /* come prima */ }
+function openRoom(index) {
+    if (!AppState.supervisionActive) {
+        openSupervisionModal();
+        return;
+    }
+    AppState.currentRoomIndex = index;
+    AppState.currentView = 'doors';
+    AppState.showComputersForViewer = false;
+    renderCurrentView();
+}
+
+function handleBack() {
+    if (AppState.currentView === 'doors') {
+        AppState.currentView = 'rooms';
+        AppState.currentRoomIndex = -1;
+        AppState.showComputersForViewer = false;
+        // Supervision remains active for the zone
+    } else if (AppState.currentView === 'rooms') {
+        AppState.currentView = 'zones';
+        AppState.currentZoneIndex = -1;
+        AppState.supervisionActive = false;
+        AppState.currentSupervisor = null;
+    }
+    renderCurrentView();
+}
+
+// ======================== STUB FUNCTIONS ========================
+function openAddModal(type) {}
+function closeAddModal() { addModal.classList.add('hidden'); }
+function handleAddConfirm() {}
