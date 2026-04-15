@@ -9,7 +9,6 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header with contract info -->
         <header class="contract-header">
             <div class="logo-area">
                 <div class="vc-logo">VC&A</div>
@@ -23,28 +22,34 @@
             </div>
         </header>
 
-        <!-- Session status bar (Clause 10.A) -->
-        <div class="session-bar" id="sessionBar">
+        <!-- Session status -->
+        <div class="session-bar">
             <div class="session-info">
                 <span>📍 Current zone: <strong id="currentZone">Not selected</strong></span>
-                <span>🖥️ Terminals inspected in this access: <strong id="terminalCount">0</strong></span>
-                <span>⚠️ MCZ/HCZ limit: <strong id="zoneLimit">2</strong> max</span>
-            </div>
-            <div class="access-reset-area" id="accessResetArea" style="display: none;">
-                <button id="requestNewAccessBtn" class="btn-secondary">📋 Request new MCZ/HCZ access</button>
+                <span>🖥️ Terminals in this session: <strong id="terminalCount">0</strong></span>
+                <span>⚠️ MCZ/HCZ limit: <strong>2</strong> max</span>
             </div>
         </div>
 
-        <!-- Main layout: two columns -->
         <div class="main-grid">
-            <!-- LEFT COLUMN: New inspection -->
+            <!-- LEFT: Form per aggiungere terminali -->
             <div class="inspection-panel">
                 <div class="panel-title">
-                    <span>📋 New Hardware/Software Inspection</span>
-                    <span class="compliance-badge">Clause 10 compliant</span>
+                    <span>📋 Add terminal to session</span>
+                    <span class="compliance-badge">Clause 10</span>
                 </div>
 
-                <!-- Zone selection -->
+                <!-- Authorization Officer (now first, with reset button) -->
+                <div class="form-group">
+                    <label>📝 Authorization Officer (for MCZ/HCZ access)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="authOfficer" placeholder="Name of authorizing officer" style="flex:1">
+                        <button id="resetCounterBtn" class="btn-icon" title="Reset terminal counter for this access">⟳</button>
+                    </div>
+                    <small class="hint">Resets terminal counter when changed. Required for MCZ/HCZ.</small>
+                </div>
+
+                <!-- Inspection zone -->
                 <div class="form-group">
                     <label>Inspection zone *</label>
                     <select id="zoneSelect">
@@ -53,177 +58,146 @@
                         <option value="MCZ">MCZ - Medium Containment Zone</option>
                         <option value="HCZ">HCZ - Heavy Containment Zone</option>
                     </select>
-                    <small class="hint">MCZ/HCZ: max 2 terminals per access (Clause 10.A)</small>
                 </div>
 
-                <!-- SCP and terminal details -->
+                <!-- SCP and Terminal ID -->
                 <div class="form-row">
                     <div class="form-group">
                         <label>SCP / Room ID *</label>
-                        <input type="text" id="scpId" placeholder="e.g. SCP-079, SCP-457">
+                        <input type="text" id="scpId" placeholder="e.g. SCP-079">
                     </div>
                     <div class="form-group">
                         <label>Terminal ID *</label>
-                        <input type="text" id="terminalId" placeholder="e.g. TERM-01, SERVER-A2">
+                        <input type="text" id="terminalId" placeholder="e.g. TERM-01">
                     </div>
                 </div>
 
-                <!-- Foundation supervisor (mandatory - Clause 10.B) -->
+                <!-- Foundation supervisor -->
                 <div class="form-group highlight">
                     <label>👮 Foundation Supervisor present *</label>
-                    <input type="text" id="supervisor" placeholder="Full name / ID badge" required>
-                    <small class="hint">Mandatory for all inspections (Clause 10.B)</small>
-                </div>
-
-                <!-- Authorization Officer (for MCZ/HCZ access reset) -->
-                <div class="form-group">
-                    <label>📝 Authorization Officer (for MCZ/HCZ access)</label>
-                    <input type="text" id="authOfficer" placeholder="Name of person who authorized this access">
-                    <small class="hint">Required if you requested a new MCZ/HCZ access. Will be saved in logs.</small>
+                    <input type="text" id="supervisor" placeholder="Full name / ID badge">
+                    <small>Mandatory (Clause 10.B)</small>
                 </div>
 
                 <!-- Hardware checklist -->
                 <div class="form-group">
                     <label>Hardware components verified</label>
                     <div class="checkbox-grid">
-                        <label><input type="checkbox" class="hw-check" value="CPU"> CPU / Processor</label>
-                        <label><input type="checkbox" class="hw-check" value="RAM"> RAM / Memory</label>
-                        <label><input type="checkbox" class="hw-check" value="Storage"> Storage / SSD/HDD</label>
-                        <label><input type="checkbox" class="hw-check" value="Network"> Network / NIC</label>
-                        <label><input type="checkbox" class="hw-check" value="Peripherals"> Peripherals / USB</label>
-                        <label><input type="checkbox" class="hw-check" value="Cooling"> Cooling / Fans</label>
+                        <label><input type="checkbox" class="hw-check" value="CPU"> CPU</label>
+                        <label><input type="checkbox" class="hw-check" value="RAM"> RAM</label>
+                        <label><input type="checkbox" class="hw-check" value="Storage"> Storage</label>
+                        <label><input type="checkbox" class="hw-check" value="Network"> Network</label>
+                        <label><input type="checkbox" class="hw-check" value="Peripherals"> Peripherals</label>
+                        <label><input type="checkbox" class="hw-check" value="Cooling"> Cooling</label>
                     </div>
                 </div>
 
-                <!-- Scan with 10-second timer -->
+                <!-- Scan button -->
                 <div class="scan-area">
-                    <button id="scanBtn" class="btn-primary">🔍 START SCAN (10 seconds)</button>
+                    <button id="scanBtn" class="btn-primary">🔍 START SCAN (10s)</button>
                     <div class="scan-progress" id="scanProgress" style="display: none;">
                         <div class="progress-bar"></div>
                         <span class="progress-text">Scanning... 0%</span>
                     </div>
                 </div>
 
-                <!-- Scan results -->
+                <!-- Scan results (appears after scan) -->
                 <div class="results-area" id="resultsArea" style="display: none;">
                     <label>Scan result</label>
                     <div class="result-options">
                         <label><input type="radio" name="scanResult" value="CLEAR"> ✅ Clear (no anomaly)</label>
-                        <label><input type="radio" name="scanResult" value="ANOMALY"> ⚠️ Anomaly detected (suspected PROP)</label>
+                        <label><input type="radio" name="scanResult" value="ANOMALY"> ⚠️ Anomaly detected</label>
                     </div>
                     <div class="form-group" id="anomalyNoteGroup" style="display: none;">
-                        <label>Anomaly description / suspected PROP</label>
-                        <textarea id="anomalyNote" rows="2" placeholder="Describe the anomaly, PROP behavior, etc."></textarea>
+                        <label>Anomaly description</label>
+                        <textarea id="anomalyNote" rows="2" placeholder="Describe anomaly / PROP behavior"></textarea>
                     </div>
                 </div>
 
-                <!-- Action buttons after scan -->
-                <div id="postScanActions" style="display: none; margin-top: 16px; display: flex; gap: 12px;">
-                    <button id="saveSingleBtn" class="btn-success" style="flex:1;">💾 Save this log</button>
-                    <button id="addToQueueBtn" class="btn-secondary" style="flex:1;">➕ Add another terminal</button>
+                <!-- Post-scan actions -->
+                <div id="postScanActions" style="display: none; margin-top: 16px; gap: 12px;">
+                    <button id="addTerminalBtn" class="btn-secondary" style="flex:1;">➕ Add this terminal to session</button>
+                    <button id="saveSingleTerminalBtn" class="btn-success" style="flex:1;">💾 Save as single log</button>
                 </div>
 
-                <!-- Batch save button (appears when queue has items) -->
-                <button id="saveBatchBtn" class="btn-success" style="display: none; margin-top: 16px;">💾 Save all logs (0 in queue)</button>
+                <!-- Final save button -->
+                <button id="saveSessionBtn" class="btn-success" style="display: none; margin-top: 16px;">💾 Save session (X terminals)</button>
             </div>
 
-            <!-- RIGHT COLUMN: Logs and emergencies -->
+            <!-- RIGHT: Pending terminals list & logs -->
             <div class="right-panel">
-                <!-- Queue panel: pending inspections -->
                 <div class="queue-card">
-                    <div class="panel-title">📦 Pending inspections (queue)</div>
-                    <div id="queueList" class="queue-list">
-                        <div class="empty-queue">No pending inspections. Add terminals after scan.</div>
+                    <div class="panel-title">📦 Terminals in current session</div>
+                    <div id="sessionTerminalsList" class="queue-list">
+                        <div class="empty-queue">No terminals added yet.</div>
                     </div>
-                    <button id="clearQueueBtn" class="btn-outline-warning" style="margin-top: 8px;">🗑️ Clear queue</button>
+                    <button id="clearSessionBtn" class="btn-outline-warning">🗑️ Clear all terminals</button>
                 </div>
 
-                <!-- PROP Emergency section (Clause 11) -->
+                <!-- PROP Emergency -->
                 <div class="emergency-card">
                     <div class="panel-title">⚠️ PROP Emergency</div>
-                    <div class="form-group">
-                        <label>FBI/RAISA supervising personnel *</label>
-                        <input type="text" id="emergencySupervisor" placeholder="Supervisor name (FBI/RAISA)">
-                        <small>Required to activate emergency mode (Clause 11)</small>
-                    </div>
-                    <div class="form-group">
-                        <label>PROP Classification</label>
-                        <select id="propClass">
-                            <option value="PROP-E">PROP-E (minor)</option>
-                            <option value="PROP-D">PROP-D</option>
-                            <option value="PROP-C">PROP-C (medium)</option>
-                            <option value="PROP-B">PROP-B (medium-high)</option>
-                            <option value="PROP-A">PROP-A (high)</option>
-                            <option value="PROP-X">PROP-X (extreme)</option>
-                        </select>
-                    </div>
-                    <button id="reportEmergencyBtn" class="btn-danger">🚨 Report PROP Emergency</button>
-                    <div id="emergencyProtocol" class="protocol-box" style="display: none;">
-                        <strong>📖 Containment protocol (from lore):</strong>
-                        <div id="protocolText"></div>
-                    </div>
+                    <input type="text" id="emergencySupervisor" placeholder="FBI/RAISA supervisor">
+                    <select id="propClass" style="margin-top: 8px;">
+                        <option value="PROP-E">PROP-E (minor)</option>
+                        <option value="PROP-D">PROP-D</option>
+                        <option value="PROP-C">PROP-C (medium)</option>
+                        <option value="PROP-B">PROP-B (medium-high)</option>
+                        <option value="PROP-A">PROP-A (high)</option>
+                        <option value="PROP-X">PROP-X (extreme)</option>
+                    </select>
+                    <button id="reportEmergencyBtn" class="btn-danger" style="margin-top: 12px;">🚨 Report PROP Emergency</button>
+                    <div id="emergencyProtocol" class="protocol-box" style="display: none;"></div>
                 </div>
 
-                <!-- Inspection logs (for RAISA) -->
+                <!-- Past logs -->
                 <div class="log-card">
                     <div class="panel-title">
-                        <span>📜 Inspection logs (for RAISA)</span>
+                        <span>📜 Past inspection logs</span>
                         <button id="exportLogsBtn" class="btn-icon" title="Export JSON">⬇️</button>
                     </div>
-                    <div id="logList" class="log-list">
-                        <div class="empty-log">No inspections recorded. Complete and save an inspection.</div>
-                    </div>
+                    <div id="logList" class="log-list">No logs yet.</div>
                     <div class="log-actions">
                         <button id="clearLogsBtn" class="btn-outline-warning">Clear local logs</button>
-                        <button id="syncWithJsonBin" class="btn-outline">Sync with JSONBin.io</button>
+                        <button id="syncWithJsonBin" class="btn-outline">Sync with JSONBin</button>
                     </div>
                 </div>
 
-                <!-- Quick procedure guide -->
                 <details class="procedure-guide">
-                    <summary>📚 Quick procedure guide (PROPDA)</summary>
+                    <summary>📚 Quick procedure guide</summary>
                     <div class="guide-content">
-                        <h4>🔧 Hardware inspection (LCZ/MCZ/HCZ)</h4>
-                        <ol>
-                            <li>Identify all CCs with electronic equipment</li>
-                            <li>Enter the cell and prepare scanner</li>
-                            <li>Run full scan (10 seconds)</li>
-                            <li>Document results on clipboard</li>
-                            <li>Power on system and verify specifications</li>
-                        </ol>
-                        <h4>🛡️ PROP Containment</h4>
-                        <p><strong>PROP-E/D:</strong> Install designated antivirus, full scan.</p>
-                        <p><strong>PROP-C:</strong> Request CIF support, isolate system.</p>
-                        <p><strong>PROP-B:</strong> Isolate network segment, deploy advanced antivirus.</p>
-                        <p><strong>PROP-A/X:</strong> Contact The Representant or HC immediately. DO NOT intervene alone.</p>
+                        <h4>Hardware inspection</h4>
+                        <ol><li>Identify CCs with electronics</li><li>Enter cell & prepare scanner</li><li>Run 10s scan</li><li>Document results</li><li>Power on & verify specs</li></ol>
+                        <h4>PROP Containment</h4>
+                        <p><strong>PROP-E/D:</strong> Install antivirus, full scan.<br>
+                        <strong>PROP-C:</strong> Request CIF support, isolate system.<br>
+                        <strong>PROP-B:</strong> Isolate network segment, advanced AV.<br>
+                        <strong>PROP-A/X:</strong> Contact The Representant immediately.</p>
                     </div>
                 </details>
             </div>
         </div>
 
-        <!-- Footer with API status -->
         <footer>
             <div class="api-status">
                 <span>🔗 JSONBin.io: </span>
-                <span id="jsonBinStatus" class="status-offline">not configured</span>
+                <span id="jsonBinStatus">not configured</span>
                 <button id="configJsonBinBtn" class="btn-link">Configure</button>
             </div>
-            <div class="compliance-note">Compliant with contract FAD-VC&A-C-220326 • No data written on Foundation terminals • Logs available for RAISA upon request</div>
+            <div class="compliance-note">Compliant with FAD-VC&A-C-220326 • No data written on Foundation terminals</div>
         </footer>
     </div>
 
-    <!-- JSONBin configuration modal -->
+    <!-- Config modal -->
     <div id="configModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close">&times;</span>
             <h3>JSONBin.io Configuration</h3>
-            <p>To persist logs (recommended for RAISA), enter your JSONBin credentials.</p>
             <label>Bin ID:</label>
-            <input type="text" id="binIdInput" placeholder="e.g. 654321abc">
+            <input type="text" id="binIdInput">
             <label>Access Key (X-Access-Key):</label>
-            <input type="password" id="apiKeyInput" placeholder="Your access key">
-            <button id="saveJsonBinConfig" class="btn-primary">Save configuration</button>
-            <p class="hint">Get a free bin at <a href="https://jsonbin.io" target="_blank">jsonbin.io</a>. Data remains private.</p>
+            <input type="password" id="apiKeyInput">
+            <button id="saveJsonBinConfig" class="btn-primary">Save</button>
         </div>
     </div>
 
