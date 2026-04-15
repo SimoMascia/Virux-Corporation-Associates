@@ -1,6 +1,6 @@
 // ======================== CONFIGURATION ========================
-const BIN_ID = "69de75ce856a6821893343d9";               // Your Bin ID
-const MASTER_KEY = "$2b$10$LA_TUA_MASTER_KEY";          // Your public Master Key
+const BIN_ID = "69de85f0856a68218933935b";               // Your Bin ID
+const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Your public Master Key
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 // ===============================================================
 
