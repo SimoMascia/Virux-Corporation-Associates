@@ -1,400 +1,462 @@
-// ======================== CONFIGURATION ========================
-const BIN_ID = "69de85f0856a68218933935b";               // Your Bin ID
-const MASTER_KEY = "$2a$10$/R1.Rr0GXwjCPn3Ezv0eMOQ4oEOWoPU0sa.k7F8tztcQp9U9tbhgS";          // Your public Master Key
-const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
-// ===============================================================
+// ==================== CONFIGURATION ====================
+const JSONBIN_BIN_ID = "69df665d36566621a8b694e5";          // Replace with your bin ID
+const JSONBIN_API_KEY = "$2a$10$RvtAYcVttTgFZj1lk9gy7uG4jjzKPztlQOwZ10zcS1eKOb0fACdO2"; // Replace with your API key
 
-// Access password (single viewer level)
-const VIEWER_PASSWORD = "VC&A-VIEWER";
+const BASE_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 
-// Inspection limits per zone type
-const HCZ_MCZ_ZONES = ["HCZ", "MCZ", "Heavy Containment", "Medium Containment"]; // Names containing these keywords
-const MAX_INSPECTIONS_PER_ZONE = 2;
+// Global state
+let appData = { zones: [] };
+let inspectionLogs = []; // each log: { timestamp, zone, room, computer, port, status, notes, inspector }
 
-const AppState = {
-    zones: [],
-    isLoggedIn: false,
-    currentView: 'zones',
-    currentZoneIndex: -1,
-    currentRoomIndex: -1,
-    showComputersForViewer: false,
-    // Contract compliance
-    inspectionCounts: {},        // { zoneName: count }
-    inspectionLog: [],           // Array of log entries
-    supervisionGranted: false,   // Simulated supervision request
-    currentAccessRequest: null   // For HCZ/MCZ limit
-};
-
-// DOM Elements
-const initialOverlay = document.getElementById('initial-login-overlay');
-const mainContainer = document.getElementById('main-container');
-const initialPasswordInput = document.getElementById('initial-password-input');
-const initialLoginBtn = document.getElementById('initial-login-btn');
-const initialLoginError = document.getElementById('initial-login-error');
-const contentArea = document.getElementById('content-area');
-const breadcrumbSpan = document.getElementById('zone-title');
-const backBtn = document.getElementById('back-btn');
-const refreshBtn = document.getElementById('refresh-btn');
-const loginBtn = document.getElementById('login-btn'); // Will be repurposed
-const logoutAdminBtn = document.getElementById('logout-admin');
-const adminPanel = document.getElementById('admin-panel');
-const adminActions = document.getElementById('admin-actions');
-const statusMsg = document.getElementById('status-message');
-const loginModal = document.getElementById('login-modal');
-const addModal = document.getElementById('add-modal'); // Will be repurposed for supervision
-const passwordInput = document.getElementById('password-input');
-const loginError = document.getElementById('login-error');
-
-document.addEventListener('DOMContentLoaded', () => {
-    updateClock();
-    setInterval(updateClock, 1000);
-    setupEventListeners();
-});
-
-function updateClock() {
-    const now = new Date();
-    const timeElement = document.getElementById('system-time');
-    if (timeElement) timeElement.textContent = now.toLocaleTimeString('en-GB');
-}
-
-function setupEventListeners() {
-    initialLoginBtn.addEventListener('click', handleInitialLogin);
-    initialPasswordInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') handleInitialLogin();
-    });
-
-    backBtn.addEventListener('click', handleBack);
-    refreshBtn.addEventListener('click', () => loadDataFromAPI());
-    
-    // Repurpose login button for supervision request
-    loginBtn.textContent = '📡 REQUEST SUPERVISION';
-    loginBtn.addEventListener('click', openSupervisionModal);
-    
-    // Hide admin panel permanently (contract compliant)
-    adminPanel.classList.add('hidden');
-    if (logoutAdminBtn) logoutAdminBtn.style.display = 'none';
-    
-    // Modal handlers
-    document.getElementById('cancel-login').addEventListener('click', closeSupervisionModal);
-    document.getElementById('confirm-login').addEventListener('click', handleSupervisionRequest);
-    document.getElementById('cancel-add').addEventListener('click', closeAddModal);
-    document.getElementById('confirm-add').addEventListener('click', handleAddConfirm);
-    
-    if (passwordInput) {
-        passwordInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') handleSupervisionRequest(); });
-    }
-}
-
-// ======================== INITIAL LOGIN ========================
-function handleInitialLogin() {
-    const pwd = initialPasswordInput.value.trim();
-    if (pwd === VIEWER_PASSWORD) {
-        AppState.isLoggedIn = true;
-        initialOverlay.style.display = 'none';
-        mainContainer.style.display = 'flex';
-        loadDataFromAPI();
-    } else {
-        initialLoginError.textContent = 'ACCESS DENIED: INVALID CREDENTIALS';
-    }
-}
-
-// ======================== API (READ ONLY) ========================
-async function loadDataFromAPI() {
-    if (!AppState.isLoggedIn) return;
+// Helper: fetch data from JSONbin
+async function fetchData() {
     try {
-        statusMsg.innerHTML = '● SYNCING...';
-        const response = await fetch(READ_URL, { headers: { 'X-Master-Key': MASTER_KEY } });
-        if (!response.ok) throw new Error('Network error');
-        const data = await response.json();
-        AppState.zones = data.record.zones || [];
-        statusMsg.innerHTML = '● CONNECTED';
-        renderCurrentView();
-    } catch (error) {
-        console.error(error);
-        statusMsg.innerHTML = '● CONNECTION ERROR';
-        if (AppState.zones.length === 0) {
-            AppState.zones = [{ name: "Test Zone", rooms: [] }];
-            renderCurrentView();
+        const res = await fetch(BASE_URL, {
+            headers: { "X-Master-Key": JSONBIN_API_KEY }
+        });
+        const json = await res.json();
+        appData = json.record || { zones: [] };
+        if (!appData.zones) appData.zones = [];
+        // Ensure each zone has rooms array etc.
+        renderAll();
+    } catch (err) {
+        console.error("Fetch error:", err);
+        alert("Failed to sync with JSONbin. Check API key/bin ID.");
+    }
+}
+
+// Helper: save data to JSONbin
+async function saveData() {
+    try {
+        await fetch(BASE_URL, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Master-Key": JSONBIN_API_KEY
+            },
+            body: JSON.stringify(appData)
+        });
+        console.log("Data saved to JSONbin");
+    } catch (err) {
+        console.error("Save error:", err);
+        alert("Failed to save to JSONbin.");
+    }
+}
+
+// ==================== RENDER FUNCTIONS ====================
+function renderAll() {
+    renderZoneSelect();
+    renderAdminPanel("zones");
+    renderLogs();
+    // If inspector view has selections, re-render ports
+    const selectedZoneId = document.getElementById("zoneSelect")?.value;
+    const selectedRoomId = document.getElementById("roomSelect")?.value;
+    const selectedCompId = document.getElementById("computerSelect")?.value;
+    if (selectedZoneId && selectedRoomId && selectedCompId) {
+        renderPorts(selectedZoneId, selectedRoomId, selectedCompId);
+    }
+}
+
+function renderZoneSelect() {
+    const zoneSelect = document.getElementById("zoneSelect");
+    if (!zoneSelect) return;
+    zoneSelect.innerHTML = '<option value="">-- Select Zone --</option>';
+    appData.zones.forEach(zone => {
+        const opt = document.createElement("option");
+        opt.value = zone.id;
+        opt.textContent = `${zone.name} (${zone.id})`;
+        zoneSelect.appendChild(opt);
+    });
+    zoneSelect.onchange = () => {
+        const zoneId = zoneSelect.value;
+        const roomSelect = document.getElementById("roomSelect");
+        if (!zoneId) {
+            roomSelect.disabled = true;
+            roomSelect.innerHTML = '<option>-- First select zone --</option>';
+            document.getElementById("computerSelect").disabled = true;
+            return;
         }
-    }
-}
-
-// ======================== RENDERING ========================
-function renderCurrentView() {
-    if (!AppState.isLoggedIn) return;
-    if (AppState.currentView === 'zones') {
-        renderZonesView();
-        breadcrumbSpan.textContent = 'ALL ZONES';
-        backBtn.disabled = true;
-    } else if (AppState.currentView === 'rooms' && AppState.currentZoneIndex !== -1) {
-        renderRoomsView();
-        breadcrumbSpan.textContent = `${AppState.zones[AppState.currentZoneIndex].name} · ROOMS`;
-        backBtn.disabled = false;
-    } else if (AppState.currentView === 'doors' && AppState.currentZoneIndex !== -1 && AppState.currentRoomIndex !== -1) {
-        renderDoorsView();
-        const zone = AppState.zones[AppState.currentZoneIndex];
-        const room = zone.rooms[AppState.currentRoomIndex];
-        breadcrumbSpan.textContent = `${zone.name} / ${room.name} · ${AppState.showComputersForViewer ? 'COMPUTERS' : 'DOORS'}`;
-        backBtn.disabled = false;
-    }
-}
-
-function renderZonesView() {
-    let html = '<div class="zone-grid">';
-    AppState.zones.forEach((zone, index) => {
-        const totalRooms = zone.rooms.length;
-        let totalDoors = 0, totalComputers = 0, hasAnomaly = false;
-        zone.rooms.forEach(room => {
-            totalDoors += room.doors.length;
-            totalComputers += room.computers.length;
-            if (room.computers.some(c => c.anomalous)) hasAnomaly = true;
-        });
-        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
-        const inspectionCount = AppState.inspectionCounts[zone.name] || 0;
-        const isHCZMCZ = HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()));
-        const limitReached = isHCZMCZ && inspectionCount >= MAX_INSPECTIONS_PER_ZONE;
-        
-        html += `
-            <div class="zone-card ${anomalyClass}" data-zone-index="${index}" style="position:relative;">
-                <h3>${zone.name}</h3>
-                <div class="zone-stats">
-                    🚪 ${totalDoors} &nbsp;|&nbsp; 💻 ${totalComputers} &nbsp;|&nbsp; 📁 ${totalRooms} rooms
-                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
-                    ${isHCZMCZ ? `<br><span style="color:#f1c40f;">🔒 HCZ/MCZ: ${inspectionCount}/${MAX_INSPECTIONS_PER_ZONE} inspections used</span>` : ''}
-                </div>
-                ${limitReached ? '<div style="position:absolute; top:5px; right:5px; color:#e74c3c;">⛔ LIMIT REACHED</div>' : ''}
-            </div>
-        `;
-    });
-    html += '</div>';
-    contentArea.innerHTML = html;
-    
-    document.querySelectorAll('.zone-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            const idx = card.dataset.zoneIndex;
-            if (idx !== undefined) {
-                const zone = AppState.zones[idx];
-                const isHCZMCZ = HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()));
-                const count = AppState.inspectionCounts[zone.name] || 0;
-                if (isHCZMCZ && count >= MAX_INSPECTIONS_PER_ZONE) {
-                    alert(`Inspection limit reached for ${zone.name}. Request new access via radio.`);
-                    return;
-                }
-                openZone(parseInt(idx));
-            }
-        });
-    });
-}
-
-function renderRoomsView() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    let html = `<div style="margin-bottom:15px;"><h2 style="color:#d4ede8;">Rooms in ${zone.name}</h2></div>`;
-    html += '<div class="zone-grid">';
-    zone.rooms.forEach((room, idx) => {
-        const hasAnomaly = room.computers.some(c => c.anomalous);
-        const anomalyClass = hasAnomaly ? 'anomaly-warning' : '';
-        const doorsCount = room.doors.length;
-        const computersCount = room.computers.length;
-        
-        html += `
-            <div class="zone-card ${anomalyClass}" data-room-index="${idx}">
-                <h3>${room.name}</h3>
-                <div class="zone-stats">
-                    🚪 ${doorsCount} door${doorsCount !== 1 ? 's' : ''} &nbsp;|&nbsp; 💻 ${computersCount} computer${computersCount !== 1 ? 's' : ''}
-                    ${hasAnomaly ? '<br><span style="color:#e74c3c;">⚠️ ANOMALY DETECTED</span>' : ''}
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    contentArea.innerHTML = html;
-    
-    document.querySelectorAll('.zone-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            const idx = card.dataset.roomIndex;
-            if (idx !== undefined) {
-                // Request supervision before allowing inspection
-                if (!AppState.supervisionGranted) {
-                    openSupervisionModal();
-                    return;
-                }
-                openRoom(parseInt(idx));
-            }
-        });
-    });
-}
-
-function renderDoorsView() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    const room = zone.rooms[AppState.currentRoomIndex];
-    
-    let html = '';
-    
-    // Toggle button for viewers
-    html += `
-        <div style="margin-bottom:20px; display: flex; gap: 10px;">
-            <button id="toggle-viewer-view" class="btn">
-                ${AppState.showComputersForViewer ? '🚪 SHOW DOORS' : '💻 SHOW COMPUTERS'}
-            </button>
-            <button id="log-inspection-btn" class="btn" style="background: #1D7483;">📋 LOG THIS INSPECTION</button>
-        </div>
-    `;
-    
-    if (AppState.showComputersForViewer) {
-        html += `<ul class="items-list">`;
-        room.computers.forEach((comp) => {
-            html += `
-                <li class="item-row computer ${comp.anomalous ? 'anomalous' : ''}">
-                    <span class="item-icon">💻</span>
-                    <div class="item-info">
-                        <div class="item-id">${comp.id}</div>
-                        <div class="item-status ${comp.anomalous ? 'status-anomalous' : 'status-clean'}">
-                            ${comp.anomalous ? 'ANOMALOUS' : 'CLEAN'}
-                        </div>
-                    </div>
-                </li>
-            `;
-        });
-        html += '</ul>';
-    } else {
-        html += `<ul class="items-list">`;
-        room.doors.forEach((door) => {
-            html += `
-                <li class="item-row door">
-                    <span class="item-icon">🚪</span>
-                    <div class="item-info">
-                        <div class="item-id">${door.id}</div>
-                        <div class="item-status ${door.locked ? 'status-locked' : 'status-unlocked'}">
-                            ${door.locked ? 'LOCKED' : 'UNLOCKED'}
-                        </div>
-                    </div>
-                </li>
-            `;
-        });
-        html += '</ul>';
-    }
-    
-    contentArea.innerHTML = html;
-    
-    document.getElementById('toggle-viewer-view')?.addEventListener('click', () => {
-        AppState.showComputersForViewer = !AppState.showComputersForViewer;
-        renderCurrentView();
-    });
-    
-    document.getElementById('log-inspection-btn')?.addEventListener('click', () => {
-        logCurrentInspection();
-    });
-}
-
-// ======================== SUPERVISION MODAL (replaces admin login) ========================
-function openSupervisionModal() {
-    loginModal.classList.remove('hidden');
-    document.querySelector('#login-modal h2').textContent = 'REQUEST SUPERVISION';
-    document.querySelector('#login-modal p').textContent = 'Foundation personnel must be present during inspection. Simulate radio request.';
-    passwordInput.value = '';
-    loginError.textContent = '';
-    passwordInput.focus();
-}
-
-function closeSupervisionModal() {
-    loginModal.classList.add('hidden');
-}
-
-function handleSupervisionRequest() {
-    // Simulate supervision granted (in RP, this would be a radio call)
-    const supervisorName = passwordInput.value.trim() || "Unknown Supervisor";
-    AppState.supervisionGranted = true;
-    closeSupervisionModal();
-    
-    // Increment inspection count for HCZ/MCZ zones
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    if (zone && HCZ_MCZ_ZONES.some(kw => zone.name.toLowerCase().includes(kw.toLowerCase()))) {
-        AppState.inspectionCounts[zone.name] = (AppState.inspectionCounts[zone.name] || 0) + 1;
-    }
-    
-    // Add log entry
-    const logEntry = {
-        timestamp: new Date().toISOString(),
-        zone: zone ? zone.name : 'Unknown',
-        supervisor: supervisorName,
-        inspector: 'VC&A Agent',
-        type: 'Supervision granted'
+        const zone = appData.zones.find(z => z.id === zoneId);
+        if (zone) {
+            roomSelect.disabled = false;
+            roomSelect.innerHTML = '<option value="">-- Select Room --</option>';
+            zone.rooms.forEach(room => {
+                const opt = document.createElement("option");
+                opt.value = room.id;
+                opt.textContent = room.name;
+                roomSelect.appendChild(opt);
+            });
+        }
     };
-    AppState.inspectionLog.push(logEntry);
-    
-    statusMsg.innerHTML = `● SUPERVISION GRANTED BY ${supervisorName.toUpperCase()}`;
-    
-    // If a room was pending, open it
-    if (AppState.currentView === 'rooms' && AppState.currentRoomIndex === -1) {
-        // User clicked a room, now supervision granted, we can open it
-        // The click handler will call openRoom again; we just need to re-trigger
-    }
-}
-
-function logCurrentInspection() {
-    const zone = AppState.zones[AppState.currentZoneIndex];
-    const room = zone.rooms[AppState.currentRoomIndex];
-    const logEntry = {
-        timestamp: new Date().toISOString(),
-        zone: zone.name,
-        room: room.name,
-        doorsChecked: room.doors.length,
-        computersChecked: room.computers.length,
-        anomaliesFound: room.computers.filter(c => c.anomalous).length,
-        inspector: 'VC&A Agent'
+    const roomSelect = document.getElementById("roomSelect");
+    roomSelect.onchange = () => {
+        const zoneId = zoneSelect.value;
+        const roomId = roomSelect.value;
+        const computerSelect = document.getElementById("computerSelect");
+        if (!zoneId || !roomId) {
+            computerSelect.disabled = true;
+            return;
+        }
+        const zone = appData.zones.find(z => z.id === zoneId);
+        const room = zone?.rooms.find(r => r.id === roomId);
+        if (room) {
+            computerSelect.disabled = false;
+            computerSelect.innerHTML = '<option value="">-- Select Computer --</option>';
+            room.computers.forEach(comp => {
+                const opt = document.createElement("option");
+                opt.value = comp.id;
+                opt.textContent = comp.name;
+                computerSelect.appendChild(opt);
+            });
+        }
     };
-    AppState.inspectionLog.push(logEntry);
-    
-    // Generate downloadable log file
-    const logText = JSON.stringify(AppState.inspectionLog, null, 2);
-    const blob = new Blob([logText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `inspection_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    statusMsg.innerHTML = '● INSPECTION LOGGED AND DOWNLOADED';
-    setTimeout(() => statusMsg.innerHTML = '● CONNECTED', 2000);
+    computerSelect.onchange = () => {
+        const zoneId = zoneSelect.value;
+        const roomId = roomSelect.value;
+        const compId = computerSelect.value;
+        if (zoneId && roomId && compId) {
+            renderPorts(zoneId, roomId, compId);
+            // Check MCZ/HCZ warning (clause 10.A)
+            const zone = appData.zones.find(z => z.id === zoneId);
+            if (zone && (zone.name.includes("MCZ") || zone.name.includes("HCZ"))) {
+                document.getElementById("hczWarning").style.display = "block";
+                // optional: count inspections per session (simplified reminder)
+            } else {
+                document.getElementById("hczWarning").style.display = "none";
+            }
+        }
+    };
 }
 
-// ======================== NAVIGATION ========================
-function openZone(index) {
-    AppState.currentZoneIndex = index;
-    AppState.currentRoomIndex = -1;
-    AppState.currentView = 'rooms';
-    AppState.supervisionGranted = false; // Reset supervision for new zone
-    renderCurrentView();
-}
-
-function openRoom(index) {
-    if (!AppState.supervisionGranted) {
-        openSupervisionModal();
+function renderPorts(zoneId, roomId, computerId) {
+    const zone = appData.zones.find(z => z.id === zoneId);
+    const room = zone?.rooms.find(r => r.id === roomId);
+    const computer = room?.computers.find(c => c.id === computerId);
+    const container = document.getElementById("portsContainer");
+    if (!computer || !computer.ports.length) {
+        container.innerHTML = '<p class="placeholder">No ports defined for this terminal. Use Admin view to add ports.</p>';
         return;
     }
-    AppState.currentRoomIndex = index;
-    AppState.currentView = 'doors';
-    AppState.showComputersForViewer = false;
-    renderCurrentView();
+    const inspector = document.getElementById("inspectorName").value || "Unknown";
+    container.innerHTML = computer.ports.map(port => `
+        <div class="port-item" data-port-id="${port.id}">
+            <div class="port-header">
+                <span class="port-name">🔌 ${port.name}</span>
+                <span class="status-badge status-${port.status || 'pending'}">${(port.status || 'PENDING').toUpperCase()}</span>
+            </div>
+            <div class="port-details">
+                <div>Last check: ${port.lastCheck ? new Date(port.lastCheck).toLocaleString() : 'Never'}</div>
+                <div>Inspector: ${port.inspector || '-'}</div>
+                <div>Notes: ${port.notes || '-'}</div>
+            </div>
+            <div class="port-actions">
+                <select id="statusSelect-${port.id}" class="status-select">
+                    <option value="pending" ${port.status === 'pending' ? 'selected' : ''}>Pending</option>
+                    <option value="clean" ${port.status === 'clean' ? 'selected' : ''}>Clean</option>
+                    <option value="anomalous" ${port.status === 'anomalous' ? 'selected' : ''}>Anomalous</option>
+                </select>
+                <input type="text" id="notesInput-${port.id}" placeholder="Add notes" value="${port.notes || ''}">
+                <button class="btn-small update-port" data-zone="${zoneId}" data-room="${roomId}" data-computer="${computerId}" data-port="${port.id}">✓ Update Checkup</button>
+            </div>
+        </div>
+    `).join('');
+    
+    // Attach event listeners to update buttons
+    document.querySelectorAll('.update-port').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const zoneId = btn.dataset.zone;
+            const roomId = btn.dataset.room;
+            const computerId = btn.dataset.computer;
+            const portId = btn.dataset.port;
+            const portElem = document.querySelector(`.port-item[data-port-id="${portId}"]`);
+            const newStatus = portElem.querySelector('.status-select').value;
+            const newNotes = portElem.querySelector('input[type="text"]').value;
+            
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const room = zone.rooms.find(r => r.id === roomId);
+            const computer = room.computers.find(c => c.id === computerId);
+            const port = computer.ports.find(p => p.id === portId);
+            port.status = newStatus;
+            port.notes = newNotes;
+            port.lastCheck = new Date().toISOString();
+            port.inspector = document.getElementById("inspectorName").value || "Unknown";
+            
+            // Log inspection
+            inspectionLogs.unshift({
+                timestamp: new Date().toISOString(),
+                zone: zone.name,
+                room: room.name,
+                computer: computer.name,
+                port: port.name,
+                status: newStatus,
+                notes: newNotes,
+                inspector: port.inspector
+            });
+            // Keep logs limited
+            if (inspectionLogs.length > 200) inspectionLogs.pop();
+            
+            await saveData();
+            renderPorts(zoneId, roomId, computerId);
+            renderLogs();
+        });
+    });
 }
 
-function handleBack() {
-    if (AppState.currentView === 'doors' || AppState.currentView === 'computers') {
-        AppState.currentView = 'rooms';
-        AppState.currentRoomIndex = -1;
-        AppState.showComputersForViewer = false;
-        AppState.supervisionGranted = false; // Reset supervision when leaving room
-    } else if (AppState.currentView === 'rooms') {
-        AppState.currentView = 'zones';
-        AppState.currentZoneIndex = -1;
+// Admin panel rendering (CRUD)
+let currentAdminLevel = "zones";
+function renderAdminPanel(level) {
+    currentAdminLevel = level;
+    const panel = document.getElementById("adminPanel");
+    if (!panel) return;
+    if (level === "zones") {
+        panel.innerHTML = `
+            <h3>Manage Zones</h3>
+            <div class="form-group"><input type="text" id="newZoneName" placeholder="Zone name (e.g., LCZ)"><input type="text" id="newZoneId" placeholder="Unique ID (e.g., lcz_01)"></div>
+            <button id="addZoneBtn">+ Add Zone</button>
+            <ul>${appData.zones.map(z => `<li>${z.name} (${z.id}) <button class="delete-zone" data-id="${z.id}">❌</button></li>`).join('')}</ul>
+        `;
+        document.getElementById("addZoneBtn")?.addEventListener("click", async () => {
+            const name = document.getElementById("newZoneName").value;
+            const id = document.getElementById("newZoneId").value;
+            if (!name || !id) return alert("Name and ID required");
+            appData.zones.push({ id, name, rooms: [] });
+            await saveData();
+            renderAdminPanel(currentAdminLevel);
+            renderZoneSelect();
+        });
+        document.querySelectorAll(".delete-zone").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                const id = btn.dataset.id;
+                appData.zones = appData.zones.filter(z => z.id !== id);
+                await saveData();
+                renderAdminPanel(currentAdminLevel);
+                renderZoneSelect();
+            });
+        });
+    } 
+    else if (level === "rooms") {
+        const zoneSelectHtml = `<select id="roomZoneSelect">${appData.zones.map(z => `<option value="${z.id}">${z.name}</option>`).join('')}</select>`;
+        panel.innerHTML = `
+            <h3>Manage Rooms</h3>
+            <div>Zone: ${zoneSelectHtml}</div>
+            <div class="form-group"><input type="text" id="newRoomName" placeholder="Room name"><input type="text" id="newRoomId" placeholder="Room ID"></div>
+            <button id="addRoomBtn">+ Add Room</button>
+            <div id="roomsList"></div>
+        `;
+        function refreshRoomsList() {
+            const zoneId = document.getElementById("roomZoneSelect").value;
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const listDiv = document.getElementById("roomsList");
+            if (zone) {
+                listDiv.innerHTML = `<ul>${zone.rooms.map(r => `<li>${r.name} (${r.id}) <button class="delete-room" data-roomid="${r.id}">❌</button></li>`).join('')}</ul>`;
+                document.querySelectorAll(".delete-room").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        const roomId = btn.dataset.roomid;
+                        zone.rooms = zone.rooms.filter(r => r.id !== roomId);
+                        await saveData();
+                        refreshRoomsList();
+                        renderZoneSelect();
+                    });
+                });
+            }
+        }
+        document.getElementById("addRoomBtn")?.addEventListener("click", async () => {
+            const zoneId = document.getElementById("roomZoneSelect").value;
+            const name = document.getElementById("newRoomName").value;
+            const id = document.getElementById("newRoomId").value;
+            if (!zoneId || !name || !id) return alert("Fill all fields");
+            const zone = appData.zones.find(z => z.id === zoneId);
+            if (zone) {
+                zone.rooms.push({ id, name, computers: [] });
+                await saveData();
+                refreshRoomsList();
+                renderZoneSelect();
+            }
+        });
+        document.getElementById("roomZoneSelect")?.addEventListener("change", refreshRoomsList);
+        refreshRoomsList();
     }
-    renderCurrentView();
+    else if (level === "computers") {
+        panel.innerHTML = `<h3>Manage Computers</h3><div class="form-group"><select id="compZoneSelect"></select><select id="compRoomSelect"></select></div>
+        <div><input id="compName" placeholder="Computer name"><input id="compId" placeholder="Computer ID"></div>
+        <button id="addCompBtn">+ Add Computer</button><div id="compList"></div>`;
+        function populateZonesAndRooms() {
+            const zoneSelect = document.getElementById("compZoneSelect");
+            zoneSelect.innerHTML = appData.zones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+            zoneSelect.onchange = () => updateRooms();
+            function updateRooms() {
+                const zoneId = zoneSelect.value;
+                const zone = appData.zones.find(z => z.id === zoneId);
+                const roomSelect = document.getElementById("compRoomSelect");
+                if (zone) roomSelect.innerHTML = zone.rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+            }
+            updateRooms();
+        }
+        populateZonesAndRooms();
+        document.getElementById("addCompBtn")?.addEventListener("click", async () => {
+            const zoneId = document.getElementById("compZoneSelect").value;
+            const roomId = document.getElementById("compRoomSelect").value;
+            const name = document.getElementById("compName").value;
+            const id = document.getElementById("compId").value;
+            if (!zoneId || !roomId || !name || !id) return alert("All fields required");
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const room = zone?.rooms.find(r => r.id === roomId);
+            if (room) {
+                room.computers.push({ id, name, ports: [] });
+                await saveData();
+                renderAdminPanel(currentAdminLevel);
+                renderZoneSelect();
+            }
+        });
+        function refreshCompList() {
+            const zoneId = document.getElementById("compZoneSelect").value;
+            const roomId = document.getElementById("compRoomSelect").value;
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const room = zone?.rooms.find(r => r.id === roomId);
+            const listDiv = document.getElementById("compList");
+            if (room) {
+                listDiv.innerHTML = `<ul>${room.computers.map(c => `<li>${c.name} (${c.id}) <button class="delete-comp" data-compid="${c.id}">❌</button></li>`).join('')}</ul>`;
+                document.querySelectorAll(".delete-comp").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        const compId = btn.dataset.compid;
+                        room.computers = room.computers.filter(c => c.id !== compId);
+                        await saveData();
+                        refreshCompList();
+                        renderZoneSelect();
+                    });
+                });
+            }
+        }
+        document.getElementById("compZoneSelect")?.addEventListener("change", refreshCompList);
+        document.getElementById("compRoomSelect")?.addEventListener("change", refreshCompList);
+        refreshCompList();
+    }
+    else if (level === "ports") {
+        panel.innerHTML = `<h3>Manage Ports</h3>
+        <div><select id="portZoneSelect"></select><select id="portRoomSelect"></select><select id="portCompSelect"></select></div>
+        <div><input id="portName" placeholder="Port name (e.g., USB1)"><input id="portId" placeholder="Port ID"></div>
+        <button id="addPortBtn">+ Add Port</button><div id="portList"></div>`;
+        function populate() {
+            const zoneSelect = document.getElementById("portZoneSelect");
+            zoneSelect.innerHTML = appData.zones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+            zoneSelect.onchange = () => updateRooms();
+            function updateRooms() {
+                const zoneId = zoneSelect.value;
+                const zone = appData.zones.find(z => z.id === zoneId);
+                const roomSelect = document.getElementById("portRoomSelect");
+                roomSelect.innerHTML = zone ? zone.rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('') : '';
+                roomSelect.onchange = () => updateComputers();
+            }
+            function updateComputers() {
+                const zoneId = zoneSelect.value;
+                const roomId = document.getElementById("portRoomSelect").value;
+                const zone = appData.zones.find(z => z.id === zoneId);
+                const room = zone?.rooms.find(r => r.id === roomId);
+                const compSelect = document.getElementById("portCompSelect");
+                compSelect.innerHTML = room ? room.computers.map(c => `<option value="${c.id}">${c.name}</option>`).join('') : '';
+            }
+            updateRooms();
+        }
+        populate();
+        document.getElementById("addPortBtn")?.addEventListener("click", async () => {
+            const zoneId = document.getElementById("portZoneSelect").value;
+            const roomId = document.getElementById("portRoomSelect").value;
+            const compId = document.getElementById("portCompSelect").value;
+            const name = document.getElementById("portName").value;
+            const id = document.getElementById("portId").value;
+            if (!zoneId || !roomId || !compId || !name || !id) return alert("All fields required");
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const room = zone?.rooms.find(r => r.id === roomId);
+            const computer = room?.computers.find(c => c.id === compId);
+            if (computer) {
+                computer.ports.push({ id, name, status: "pending", notes: "", lastCheck: null, inspector: "" });
+                await saveData();
+                renderAdminPanel(currentAdminLevel);
+                renderZoneSelect();
+            }
+        });
+        function refreshPortList() {
+            const zoneId = document.getElementById("portZoneSelect").value;
+            const roomId = document.getElementById("portRoomSelect").value;
+            const compId = document.getElementById("portCompSelect").value;
+            const zone = appData.zones.find(z => z.id === zoneId);
+            const room = zone?.rooms.find(r => r.id === roomId);
+            const computer = room?.computers.find(c => c.id === compId);
+            const listDiv = document.getElementById("portList");
+            if (computer) {
+                listDiv.innerHTML = `<ul>${computer.ports.map(p => `<li>${p.name} (${p.id}) <button class="delete-port" data-portid="${p.id}">❌</button></li>`).join('')}</ul>`;
+                document.querySelectorAll(".delete-port").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        const portId = btn.dataset.portid;
+                        computer.ports = computer.ports.filter(p => p.id !== portId);
+                        await saveData();
+                        refreshPortList();
+                        renderZoneSelect();
+                    });
+                });
+            }
+        }
+        document.getElementById("portZoneSelect")?.addEventListener("change", refreshPortList);
+        document.getElementById("portRoomSelect")?.addEventListener("change", refreshPortList);
+        document.getElementById("portCompSelect")?.addEventListener("change", refreshPortList);
+        refreshPortList();
+    }
 }
 
-// ======================== STUB FUNCTIONS (admin removed) ========================
-function openAddModal(type) {} // Not used
-function closeAddModal() { addModal.classList.add('hidden'); }
-function handleAddConfirm() {} // Not used
-function attachDoorEvents() {} // Not used
-function attachComputerEvents() {} // Not used
+function renderLogs() {
+    const container = document.getElementById("logsList");
+    if (!container) return;
+    if (inspectionLogs.length === 0) {
+        container.innerHTML = "<p>No inspections performed yet.</p>";
+        return;
+    }
+    container.innerHTML = inspectionLogs.map(log => `
+        <div class="log-entry" style="border-left-color: ${log.status === 'anomalous' ? '#9e3b3b' : '#2a6b4e'}">
+            <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.inspector}<br>
+            📍 ${log.zone} / ${log.room} / ${log.computer}<br>
+            🔌 ${log.port} → <strong>${log.status.toUpperCase()}</strong><br>
+            📝 ${log.notes || 'No notes'}
+        </div>
+    `).join('');
+}
+
+// Navigation
+document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const view = btn.dataset.view;
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById(`${view}View`).classList.add('active');
+        document.querySelectorAll('.nav-btn').forEach(navBtn => navBtn.classList.remove('active'));
+        btn.classList.add('active');
+        if (view === 'admin') renderAdminPanel(currentAdminLevel);
+        if (view === 'logs') renderLogs();
+    });
+});
+
+document.getElementById("syncDataBtn")?.addEventListener("click", fetchData);
+document.getElementById("exportDataBtn")?.addEventListener("click", () => {
+    const dataStr = JSON.stringify(appData, null, 2);
+    const blob = new Blob([dataStr], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vca_data_${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+});
+document.getElementById("exportLogsBtn")?.addEventListener("click", () => {
+    let csv = "Timestamp,Zone,Room,Computer,Port,Status,Inspector,Notes\n";
+    inspectionLogs.forEach(log => {
+        csv += `"${log.timestamp}","${log.zone}","${log.room}","${log.computer}","${log.port}","${log.status}","${log.inspector}","${log.notes.replace(/"/g, '""')}"\n`;
+    });
+    const blob = new Blob([csv], {type: "text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vca_inspections_${new Date().toISOString()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+// Initialize
+fetchData();
