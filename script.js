@@ -1,6 +1,6 @@
 // ========================
-// PROPDA INSPECTION ASSISTANT - SESSION BASED (FIXED)
-// Fixed renderLogs for old logs and missing 'terminals'
+// PROPDA INSPECTION ASSISTANT - SESSION BASED
+// Fixed JSONBin sync with better error handling
 // ========================
 
 let appState = {
@@ -41,7 +41,7 @@ const postScanActions = document.getElementById('postScanActions');
 const logListDiv = document.getElementById('logList');
 const exportLogsBtn = document.getElementById('exportLogsBtn');
 const clearLogsBtn = document.getElementById('clearLogsBtn');
-const syncJsonBinBtn = document.getElementById('syncJsonBin');
+const syncJsonBinBtn = document.getElementById('syncWithJsonBin');
 const configJsonBinBtn = document.getElementById('configJsonBinBtn');
 const jsonBinStatusSpan = document.getElementById('jsonBinStatus');
 
@@ -130,7 +130,7 @@ function updateTerminalCounterDisplay() {
     terminalCountSpan.innerText = appState.session.terminalsInspected;
 }
 
-// ========== RENDER LOGS (FIXED) ==========
+// ========== RENDER LOGS (robust) ==========
 function renderLogs() {
     if (!logListDiv) return;
     if (appState.logs.length === 0) {
@@ -138,7 +138,7 @@ function renderLogs() {
         return;
     }
     logListDiv.innerHTML = appState.logs.slice().reverse().map(log => {
-        // Check if it's a session log (has terminals array)
+        // Session log with terminals array
         if (log.terminals && Array.isArray(log.terminals)) {
             let terminalsHtml = log.terminals.map(t => 
                 `<li>${escapeHtml(t.scpId)} | ${escapeHtml(t.terminalId)} | ${t.scanResult === 'CLEAR' ? '✅ Clear' : '⚠️ Anomaly'}${t.anomalyNote ? ` (${escapeHtml(t.anomalyNote)})` : ''}</li>`
@@ -149,18 +149,10 @@ function renderLogs() {
                 Terminals (${log.terminals.length}):<ul style="margin:4px 0 0 20px">${terminalsHtml}</ul>
             </div>`;
         } 
-        // Check if it's an emergency log (old format without terminals)
-        else if (log.type === 'EMERGENCY_PROP') {
-            return `<div class="log-item">
-                <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.type} | ${log.propClass}<br>
-                Agent: ${escapeHtml(log.agent)} | RAISA: ${escapeHtml(log.supervisorRAISA)}<br>
-                Protocol: ${escapeHtml(log.protocolAdvised)}
-            </div>`;
-        }
-        // Unknown format: display as raw JSON (fallback)
+        // Emergency or legacy log without terminals
         else {
             return `<div class="log-item" style="border-left-color: #e76f51;">
-                <strong>${new Date(log.timestamp).toLocaleString()}</strong> | Legacy log (incomplete)<br>
+                <strong>${new Date(log.timestamp).toLocaleString()}</strong> | Legacy/Other log<br>
                 <pre style="font-size: 0.7rem; margin-top: 4px; overflow-x: auto;">${escapeHtml(JSON.stringify(log, null, 2))}</pre>
             </div>`;
         }
@@ -186,17 +178,26 @@ function loadLogsFromLocalStorage() {
     renderLogs();
 }
 
-// ========== JSONBIN.IO ==========
+// ========== JSONBIN.IO SYNC (FIXED) ==========
 async function syncWithJsonBin() {
     const { binId, accessKey } = appState.jsonBinConfig;
     if (!binId || !accessKey) {
         jsonBinStatusSpan.innerText = "not configured";
         jsonBinStatusSpan.className = "status-offline";
-        alert("Configure Bin ID and Access Key first.");
+        alert("Configure Bin ID and Access Key first (click 'Configure' at the bottom).");
         return;
     }
     jsonBinStatusSpan.innerText = "syncing...";
     try {
+        // First, try to read the existing bin to see if it's accessible
+        const testResponse = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+            headers: { 'X-Access-Key': accessKey }
+        });
+        if (!testResponse.ok) {
+            throw new Error(`Cannot access bin: HTTP ${testResponse.status}. Check Bin ID and Access Key permissions.`);
+        }
+        
+        // Now update the bin with current logs
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
             method: 'PUT',
             headers: {
@@ -208,12 +209,13 @@ async function syncWithJsonBin() {
         if (response.ok) {
             jsonBinStatusSpan.innerText = "connected ✅";
             jsonBinStatusSpan.className = "status-online";
-            alert("Logs synced with JSONBin.");
+            alert("Logs successfully synced with JSONBin.");
         } else {
-            throw new Error(`HTTP ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`Update failed: HTTP ${response.status} - ${errorText}`);
         }
     } catch (err) {
-        console.error(err);
+        console.error("Sync error:", err);
         jsonBinStatusSpan.innerText = "sync error";
         jsonBinStatusSpan.className = "status-offline";
         alert("Sync failed: " + err.message);
@@ -235,8 +237,9 @@ async function loadFromJsonBin() {
                 renderLogs();
                 jsonBinStatusSpan.innerText = "connected ✅";
                 jsonBinStatusSpan.className = "status-online";
+                alert("Logs loaded from JSONBin.");
             } else {
-                // Bin exists but no logs array
+                // Bin exists but no logs array, initialize empty
                 appState.logs = [];
                 saveLogsToLocalStorage();
                 renderLogs();
@@ -245,13 +248,15 @@ async function loadFromJsonBin() {
         } else if (response.status === 404) {
             jsonBinStatusSpan.innerText = "bin not found";
             jsonBinStatusSpan.className = "status-offline";
+            alert("Bin not found. Please create a new bin on JSONBin.io and configure again.");
         } else {
             throw new Error(`HTTP ${response.status}`);
         }
     } catch(e) {
-        console.warn(e);
+        console.warn("Load from JSONBin failed:", e);
         jsonBinStatusSpan.innerText = "load error";
         jsonBinStatusSpan.className = "status-offline";
+        alert("Failed to load from JSONBin: " + e.message);
     }
 }
 
@@ -299,7 +304,10 @@ function saveJsonBinConfig() {
     appState.jsonBinConfig = { binId, accessKey };
     localStorage.setItem('propda_jsonbin_config', JSON.stringify(appState.jsonBinConfig));
     document.getElementById('configModal').style.display = "none";
-    loadFromJsonBin().then(() => syncWithJsonBin());
+    loadFromJsonBin().then(() => {
+        // After loading, optionally sync local changes
+        syncWithJsonBin();
+    });
 }
 
 function loadJsonBinConfig() {
@@ -434,6 +442,7 @@ function saveSingle() {
     postScanActions.style.display = 'none';
     lastScanData = null;
     alert("Terminal saved as single log.");
+    // Optionally sync (but don't block)
     syncWithJsonBin();
 }
 
