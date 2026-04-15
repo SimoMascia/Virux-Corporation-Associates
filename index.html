@@ -29,10 +29,8 @@
                 <span>📍 Current zone: <strong id="currentZone">Not selected</strong></span>
                 <span>🖥️ Terminals inspected in this access: <strong id="terminalCount">0</strong></span>
                 <span>⚠️ MCZ/HCZ limit: <strong id="zoneLimit">2</strong> max</span>
-                <span class="tooltip">ⓘ <span class="tooltiptext">"Terminal" = any Foundation-owned electronic device with computing power (computer, server, tablet, etc.) - Contract Clause 8</span></span>
             </div>
             <div class="access-reset-area" id="accessResetArea" style="display: none;">
-                <input type="text" id="authOfficerInput" placeholder="Authorization Officer name (required)" style="width: 200px;">
                 <button id="requestNewAccessBtn" class="btn-secondary">📋 Request new MCZ/HCZ access</button>
             </div>
         </div>
@@ -77,6 +75,13 @@
                     <small class="hint">Mandatory for all inspections (Clause 10.B)</small>
                 </div>
 
+                <!-- Authorization Officer (for MCZ/HCZ access reset) -->
+                <div class="form-group">
+                    <label>📝 Authorization Officer (for MCZ/HCZ access)</label>
+                    <input type="text" id="authOfficer" placeholder="Name of person who authorized this access">
+                    <small class="hint">Required if you requested a new MCZ/HCZ access. Will be saved in logs.</small>
+                </div>
+
                 <!-- Hardware checklist -->
                 <div class="form-group">
                     <label>Hardware components verified</label>
@@ -103,7 +108,7 @@
                 <div class="results-area" id="resultsArea" style="display: none;">
                     <label>Scan result</label>
                     <div class="result-options">
-                        <label><input type="radio" name="scanResult" value="NOMINAL"> ✅ Nominal (no anomaly)</label>
+                        <label><input type="radio" name="scanResult" value="CLEAR"> ✅ Clear (no anomaly)</label>
                         <label><input type="radio" name="scanResult" value="ANOMALY"> ⚠️ Anomaly detected (suspected PROP)</label>
                     </div>
                     <div class="form-group" id="anomalyNoteGroup" style="display: none;">
