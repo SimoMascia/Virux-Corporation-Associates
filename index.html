@@ -117,12 +117,27 @@
                     </div>
                 </div>
 
-                <!-- Save button -->
-                <button id="saveInspectionBtn" class="btn-success" disabled>💾 Save inspection (log to RAISA)</button>
+                <!-- Action buttons after scan -->
+                <div id="postScanActions" style="display: none; margin-top: 16px; display: flex; gap: 12px;">
+                    <button id="saveSingleBtn" class="btn-success" style="flex:1;">💾 Save this log</button>
+                    <button id="addToQueueBtn" class="btn-secondary" style="flex:1;">➕ Add another terminal</button>
+                </div>
+
+                <!-- Batch save button (appears when queue has items) -->
+                <button id="saveBatchBtn" class="btn-success" style="display: none; margin-top: 16px;">💾 Save all logs (0 in queue)</button>
             </div>
 
             <!-- RIGHT COLUMN: Logs and emergencies -->
             <div class="right-panel">
+                <!-- Queue panel: pending inspections -->
+                <div class="queue-card">
+                    <div class="panel-title">📦 Pending inspections (queue)</div>
+                    <div id="queueList" class="queue-list">
+                        <div class="empty-queue">No pending inspections. Add terminals after scan.</div>
+                    </div>
+                    <button id="clearQueueBtn" class="btn-outline-warning" style="margin-top: 8px;">🗑️ Clear queue</button>
+                </div>
+
                 <!-- PROP Emergency section (Clause 11) -->
                 <div class="emergency-card">
                     <div class="panel-title">⚠️ PROP Emergency</div>
@@ -205,8 +220,8 @@
             <p>To persist logs (recommended for RAISA), enter your JSONBin credentials.</p>
             <label>Bin ID:</label>
             <input type="text" id="binIdInput" placeholder="e.g. 654321abc">
-            <label>API Key (Master Key):</label>
-            <input type="password" id="apiKeyInput" placeholder="Your master key">
+            <label>Access Key (X-Access-Key):</label>
+            <input type="password" id="apiKeyInput" placeholder="Your access key">
             <button id="saveJsonBinConfig" class="btn-primary">Save configuration</button>
             <p class="hint">Get a free bin at <a href="https://jsonbin.io" target="_blank">jsonbin.io</a>. Data remains private.</p>
         </div>
