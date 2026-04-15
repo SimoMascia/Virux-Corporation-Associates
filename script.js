@@ -1,20 +1,21 @@
 // ========================
 // PROPDA INSPECTION ASSISTANT
-// Conforme al contratto FAD-VC&A-C-220326
+// Compliant with contract FAD-VC&A-C-220326
 // ========================
 
-// Stato dell'applicazione
+// App state
 let appState = {
     session: {
         zone: null,
         terminalsInspected: 0,
+        authOfficer: null      // name of person who authorized current access (for MCZ/HCZ)
     },
     currentScan: {
         inProgress: false,
         result: null,
         anomalyText: ""
     },
-    logs: [],          // array di oggetti ispezione
+    logs: [],
     jsonBinConfig: {
         binId: "",
         apiKey: ""
@@ -28,7 +29,9 @@ const terminalInput = document.getElementById('terminalId');
 const supervisorInput = document.getElementById('supervisor');
 const scanBtn = document.getElementById('scanBtn');
 const saveBtn = document.getElementById('saveInspectionBtn');
-const resetAccessBtn = document.getElementById('resetAccessBtn');
+const resetAccessBtn = document.getElementById('requestNewAccessBtn');
+const authOfficerInput = document.getElementById('authOfficerInput');
+const accessResetArea = document.getElementById('accessResetArea');
 const currentZoneSpan = document.getElementById('currentZone');
 const terminalCountSpan = document.getElementById('terminalCount');
 const scanProgressDiv = document.getElementById('scanProgress');
@@ -47,7 +50,7 @@ const propClassSelect = document.getElementById('propClass');
 const emergencyProtocolDiv = document.getElementById('emergencyProtocol');
 const protocolTextDiv = document.getElementById('protocolText');
 
-// Helper: salva logs in localStorage e tenta sync con JSONBin
+// Helper: save logs to localStorage
 function saveLogsToLocalStorage() {
     localStorage.setItem('propda_inspection_logs', JSON.stringify(appState.logs));
 }
@@ -64,28 +67,29 @@ function loadLogsFromLocalStorage() {
     renderLogs();
 }
 
-// Render della lista log
+// Render log list
 function renderLogs() {
     if (!logListDiv) return;
     if (appState.logs.length === 0) {
-        logListDiv.innerHTML = '<div class="empty-log">Nessuna ispezione registrata. Completa e salva una ispezione.</div>';
+        logListDiv.innerHTML = '<div class="empty-log">No inspections recorded. Complete and save an inspection.</div>';
         return;
     }
     logListDiv.innerHTML = appState.logs.slice().reverse().map(log => {
         return `<div class="log-item">
             <strong>${new Date(log.timestamp).toLocaleString()}</strong> | ${log.zone} | ${log.scpId} | Term:${log.terminalId}<br>
-            Esito: ${log.scanResult} | Supervisore: ${log.supervisor} | Agente: ${log.agent || 'N/D'}
-            ${log.anomalyNote ? `<br><span style="color:#f4a261;">⚠️ Anomalia: ${log.anomalyNote.substring(0, 80)}</span>` : ''}
+            Result: ${log.scanResult} | Supervisor: ${log.supervisor} | Agent: ${log.agent || 'N/A'}
+            ${log.authOfficer ? ` | Auth Officer: ${log.authOfficer}` : ''}
+            ${log.anomalyNote ? `<br><span style="color:#f4a261;">⚠️ Anomaly: ${log.anomalyNote.substring(0, 80)}</span>` : ''}
         </div>`;
     }).join('');
 }
 
-// Aggiunge un'ispezione ai log
+// Add inspection to logs
 function addInspectionLog(inspectionData) {
     const newLog = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        agent: prompt("Inserisci il tuo nome/codice agente PROPDA (per logging RAISA):", "Agente") || "Anonimo",
+        agent: prompt("Enter your PROPDA agent name/code (for RAISA logging):", "Agent") || "Anonymous",
         zone: inspectionData.zone,
         scpId: inspectionData.scpId,
         terminalId: inspectionData.terminalId,
@@ -93,26 +97,26 @@ function addInspectionLog(inspectionData) {
         hardwareChecked: inspectionData.hardwareChecked,
         scanResult: inspectionData.scanResult,
         anomalyNote: inspectionData.anomalyNote || null,
-        sessionTerminalCount: appState.session.terminalsInspected
+        sessionTerminalCount: appState.session.terminalsInspected,
+        authOfficer: appState.session.authOfficer || null   // store who authorized current access (if MCZ/HCZ)
     };
     appState.logs.push(newLog);
     saveLogsToLocalStorage();
     renderLogs();
-    // Tentativo di sincronizzazione con JSONBin se configurato
     syncWithJsonBinBackground();
     return newLog;
 }
 
-// Sincronizzazione con JSONBin.io (push di tutti i log)
+// Sync with JSONBin.io
 async function syncWithJsonBinBackground() {
     const { binId, apiKey } = appState.jsonBinConfig;
     if (!binId || !apiKey) {
-        jsonBinStatusSpan.innerText = "non configurato";
+        jsonBinStatusSpan.innerText = "not configured";
         jsonBinStatusSpan.className = "status-offline";
         return;
     }
     try {
-        jsonBinStatusSpan.innerText = "sincronizzazione...";
+        jsonBinStatusSpan.innerText = "syncing...";
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
             method: 'PUT',
             headers: {
@@ -122,19 +126,18 @@ async function syncWithJsonBinBackground() {
             body: JSON.stringify({ logs: appState.logs, lastUpdate: new Date().toISOString() })
         });
         if (response.ok) {
-            jsonBinStatusSpan.innerText = "connesso ✅";
+            jsonBinStatusSpan.innerText = "connected ✅";
             jsonBinStatusSpan.className = "status-online";
         } else {
-            throw new Error("Errore API");
+            throw new Error("API error");
         }
     } catch (err) {
-        console.error("Sync JSONBin fallita", err);
-        jsonBinStatusSpan.innerText = "errore sync";
+        console.error("JSONBin sync failed", err);
+        jsonBinStatusSpan.innerText = "sync error";
         jsonBinStatusSpan.className = "status-offline";
     }
 }
 
-// Carica i log da JSONBin (all'avvio se configurato)
 async function loadFromJsonBin() {
     const { binId, apiKey } = appState.jsonBinConfig;
     if (!binId || !apiKey) return;
@@ -148,71 +151,85 @@ async function loadFromJsonBin() {
                 appState.logs = data.record.logs;
                 saveLogsToLocalStorage();
                 renderLogs();
-                jsonBinStatusSpan.innerText = "connesso ✅";
+                jsonBinStatusSpan.innerText = "connected ✅";
                 jsonBinStatusSpan.className = "status-online";
             }
         }
-    } catch(e) { console.warn("Caricamento JSONBin fallito", e); }
+    } catch(e) { console.warn("JSONBin load failed", e); }
 }
 
-// Gestione zona e limite terminali (Clausola 10.A)
+// Zone change handler (Clause 10.A)
 function updateSessionZone() {
     const newZone = zoneSelect.value;
     if (newZone === "") return;
-    // Se cambio zona rispetto alla precedente, reset del contatore se la nuova zona è MCZ/HCZ o se si passa da MCZ/HCZ a LCZ?
-    // Secondo clausola: il limite si applica per singolo accesso in MCZ/HCZ. Se cambio zona, consideriamo nuovo accesso.
+    
     const oldZone = appState.session.zone;
+    // If zone changes, reset terminal counter and auth officer (if entering MCZ/HCZ)
     if (oldZone !== newZone) {
-        // Reset contatore se la nuova zona è MCZ o HCZ oppure se si esce da MCZ/HCZ (per sicurezza)
         if (newZone === 'MCZ' || newZone === 'HCZ') {
             appState.session.terminalsInspected = 0;
-        } else if (oldZone === 'MCZ' || oldZone === 'HCZ') {
-            // Lasciamo contatore a 0 per LCZ (non vincolante)
+            appState.session.authOfficer = null;
+            authOfficerInput.value = '';
+            accessResetArea.style.display = "flex";
+        } else {
             appState.session.terminalsInspected = 0;
+            appState.session.authOfficer = null;
+            accessResetArea.style.display = "none";
         }
         appState.session.zone = newZone;
     } else if (!appState.session.zone) {
         appState.session.zone = newZone;
+        if (newZone === 'MCZ' || newZone === 'HCZ') {
+            accessResetArea.style.display = "flex";
+        } else {
+            accessResetArea.style.display = "none";
+        }
     }
+    
     currentZoneSpan.innerText = newZone;
     terminalCountSpan.innerText = appState.session.terminalsInspected;
-    // Abilita/disabilita pulsante reset accesso
-    if (newZone === 'MCZ' || newZone === 'HCZ') {
-        resetAccessBtn.disabled = false;
-    } else {
-        resetAccessBtn.disabled = true;
-    }
-    // Verifica limite
+    
+    // Check limit
     if ((newZone === 'MCZ' || newZone === 'HCZ') && appState.session.terminalsInspected >= 2) {
-        alert("ATTENZIONE: hai raggiunto il limite di 2 terminali ispezionati in questa zona. Richiedi nuovo accesso (Clausola 10.A).");
+        alert("WARNING: You have reached the limit of 2 terminals inspected in this zone. Request new access with authorization officer (Clause 10.A).");
         scanBtn.disabled = true;
         saveBtn.disabled = true;
     } else {
         scanBtn.disabled = false;
-        saveBtn.disabled = true; // si abilita solo dopo scan
+        saveBtn.disabled = true; // enabled after scan
     }
 }
 
-function resetAccess() {
-    if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
-        appState.session.terminalsInspected = 0;
-        terminalCountSpan.innerText = "0";
-        alert("Accesso resettato. Puoi ispezionare fino a 2 nuovi terminali in questa zona.");
-        scanBtn.disabled = false;
-        if (!appState.currentScan.inProgress) saveBtn.disabled = true;
+// Request new access (reset counter) with authorization officer name
+function requestNewAccess() {
+    if (appState.session.zone !== 'MCZ' && appState.session.zone !== 'HCZ') {
+        alert("This function is only for MCZ/HCZ.");
+        return;
     }
+    const officerName = authOfficerInput.value.trim();
+    if (!officerName) {
+        alert("Authorization Officer name is required to request new access (per contract).");
+        return;
+    }
+    // Reset counter and store officer name
+    appState.session.terminalsInspected = 0;
+    appState.session.authOfficer = officerName;
+    terminalCountSpan.innerText = "0";
+    scanBtn.disabled = false;
+    saveBtn.disabled = true;
+    alert(`New access authorized by ${officerName}. You may inspect up to 2 terminals in this zone.`);
+    // Optional: log this access request? We'll store it in next inspection's log.
 }
 
-// Timer scan di 10 secondi (simulazione)
+// 10-second scan simulation
 let scanTimer = null;
 function startScan() {
-    // Validazioni preliminari
-    if (!zoneSelect.value) { alert("Seleziona una zona di ispezione."); return; }
-    if (!scpInput.value.trim()) { alert("Inserisci SCP / Room ID."); return; }
-    if (!terminalInput.value.trim()) { alert("Inserisci Terminale ID."); return; }
-    if (!supervisorInput.value.trim()) { alert("Inserisci il nome del supervisore Foundation presente (Clausola 10.B)."); return; }
+    if (!zoneSelect.value) { alert("Select an inspection zone."); return; }
+    if (!scpInput.value.trim()) { alert("Enter SCP / Room ID."); return; }
+    if (!terminalInput.value.trim()) { alert("Enter Terminal ID."); return; }
+    if (!supervisorInput.value.trim()) { alert("Enter Foundation supervisor name (Clause 10.B)."); return; }
     if ((appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') && appState.session.terminalsInspected >= 2) {
-        alert("Limite terminali raggiunto. Richiedi nuovo accesso con il pulsante apposito.");
+        alert("Terminal limit reached. Request new access with authorization officer.");
         return;
     }
     if (appState.currentScan.inProgress) return;
@@ -229,28 +246,25 @@ function startScan() {
     const interval = setInterval(() => {
         progress += 10;
         if (progressBar) progressBar.style.width = `${progress}%`;
-        if (progressText) progressText.innerText = `Scansione in corso... ${progress}%`;
+        if (progressText) progressText.innerText = `Scanning... ${progress}%`;
         if (progress >= 100) {
             clearInterval(interval);
-            // Scan completato
             appState.currentScan.inProgress = false;
             scanProgressDiv.style.display = "none";
             resultsArea.style.display = "block";
-            // Reset radio
             document.querySelectorAll('input[name="scanResult"]').forEach(radio => radio.checked = false);
             anomalyNoteGroup.style.display = "none";
             anomalyNote.value = "";
             saveBtn.disabled = false;
             scanBtn.disabled = false;
-            // Effetto sonoro? solo RP
         }
-    }, 1000); // 10 secondi totali, 10 step da 1 secondo
+    }, 1000);
 }
 
-// Gestione cambio radio anomalia
+// Radio change for anomaly
 document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
-        if (e.target.value === 'ANOMALIA') {
+        if (e.target.value === 'ANOMALY') {
             anomalyNoteGroup.style.display = "block";
         } else {
             anomalyNoteGroup.style.display = "none";
@@ -258,15 +272,15 @@ document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     });
 });
 
-// Salvataggio ispezione
+// Save inspection
 function saveInspection() {
     if (!zoneSelect.value || !scpInput.value || !terminalInput.value || !supervisorInput.value) {
-        alert("Compilare tutti i campi obbligatori.");
+        alert("Fill all mandatory fields.");
         return;
     }
     const scanResultElem = document.querySelector('input[name="scanResult"]:checked');
     if (!scanResultElem) {
-        alert("Seleziona l'esito della scansione (Nominale / Anomalia).");
+        alert("Select scan result (Nominal / Anomaly).");
         return;
     }
     const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
@@ -277,50 +291,49 @@ function saveInspection() {
         supervisor: supervisorInput.value.trim(),
         hardwareChecked: hardwareChecked,
         scanResult: scanResultElem.value,
-        anomalyNote: (scanResultElem.value === 'ANOMALIA') ? anomalyNote.value.trim() : null
+        anomalyNote: (scanResultElem.value === 'ANOMALY') ? anomalyNote.value.trim() : null
     };
     addInspectionLog(inspection);
-    // Incrementa contatore terminali ispezionati (Clausola 10.A)
+    
+    // Increment terminal counter for MCZ/HCZ
     if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
         appState.session.terminalsInspected++;
         terminalCountSpan.innerText = appState.session.terminalsInspected;
         if (appState.session.terminalsInspected >= 2) {
-            alert("Limite di 2 terminali per questo accesso raggiunto. Per ulteriori ispezioni, richiedi nuovo accesso.");
+            alert("Limit of 2 terminals for this access reached. To inspect more, request new access with authorization officer.");
             scanBtn.disabled = true;
             saveBtn.disabled = true;
         }
     }
-    // Reset form parziale? Manteniamo i dati ma puliamo i campi a piacere? Non necessario.
-    // Resetta area risultati e pulsante
+    // Reset UI
     resultsArea.style.display = "none";
     saveBtn.disabled = true;
-    // Opzionale: pulire i checkbox hardware? Lasciamo all'utente.
 }
 
-// Emergenza PROP (Clausola 11)
+// PROP Emergency (Clause 11)
 function reportEmergency() {
     const supervisor = emergencySupervisor.value.trim();
     if (!supervisor) {
-        alert("È obbligatoria la presenza di personale FBI/RAISA per attivare emergenza PROP (Clausola 11).");
+        alert("FBI/RAISA supervising personnel is required (Clause 11).");
         return;
     }
     const propClass = propClassSelect.value;
     let protocol = "";
     switch(propClass) {
-        case 'PROP-E': case 'PROP-D': protocol = "Installare antivirus designato, eseguire scan completo. Monitorare per 48h."; break;
-        case 'PROP-C': protocol = "Richiedere supporto CIF (First View/Dark Wolf). Isolare il sistema e installare strumenti di containment avanzati."; break;
-        case 'PROP-B': protocol = "Isolare immediatamente il segmento di rete. Deploy antivirus su tutti i sistemi collegati. Monitoraggio settimanale."; break;
-        case 'PROP-A': case 'PROP-X': protocol = "Contattare immediatamente The Representant o High Command. NON intervenire autonomamente. Evacuare l'area se necessario."; break;
-        default: protocol = "Segui i protocolli interni di VC&A.";
+        case 'PROP-E': case 'PROP-D': protocol = "Install designated antivirus, run full scan. Monitor for 48h."; break;
+        case 'PROP-C': protocol = "Request CIF support (First View/Dark Wolf). Isolate system and deploy advanced containment tools."; break;
+        case 'PROP-B': protocol = "Immediately isolate network segment. Deploy antivirus on all connected systems. Weekly monitoring."; break;
+        case 'PROP-A': case 'PROP-X': protocol = "Contact The Representant or High Command immediately. DO NOT intervene alone. Evacuate area if needed."; break;
+        default: protocol = "Follow internal VC&A protocols.";
     }
     protocolTextDiv.innerText = protocol;
     emergencyProtocolDiv.style.display = "block";
-    // Logga evento emergenza nei log? Aggiungiamo un record speciale
+    
     const emergencyLog = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        agent: prompt("Registra il tuo nome agente per il rapporto emergenza:") || "Agente",
-        type: "EMERGENZA_PROP",
+        agent: prompt("Enter your agent name for emergency report:") || "Agent",
+        type: "EMERGENCY_PROP",
         propClass: propClass,
         supervisorRAISA: supervisor,
         protocolAdvised: protocol
@@ -329,10 +342,10 @@ function reportEmergency() {
     saveLogsToLocalStorage();
     renderLogs();
     syncWithJsonBinBackground();
-    alert(`Emergenza PROP segnalata. Protocollo: ${protocol}`);
+    alert(`PROP Emergency reported. Protocol: ${protocol}`);
 }
 
-// Export logs come JSON
+// Export logs as JSON
 function exportLogs() {
     const dataStr = JSON.stringify(appState.logs, null, 2);
     const blob = new Blob([dataStr], {type: "application/json"});
@@ -345,15 +358,15 @@ function exportLogs() {
 }
 
 function clearLocalLogs() {
-    if (confirm("Cancellare tutti i log locali? (I dati su JSONBin.io rimarranno se configurati)")) {
+    if (confirm("Clear all local logs? (Data on JSONBin.io will remain if configured)")) {
         appState.logs = [];
         saveLogsToLocalStorage();
         renderLogs();
-        alert("Log locali cancellati.");
+        alert("Local logs cleared.");
     }
 }
 
-// Configurazione JSONBin
+// JSONBin configuration modal
 function showConfigModal() {
     const modal = document.getElementById('configModal');
     modal.style.display = "flex";
@@ -364,24 +377,23 @@ function saveJsonBinConfig() {
     const binId = document.getElementById('binIdInput').value.trim();
     const apiKey = document.getElementById('apiKeyInput').value.trim();
     if (!binId || !apiKey) {
-        alert("Inserisci sia Bin ID che API Key");
+        alert("Enter both Bin ID and API Key");
         return;
     }
     appState.jsonBinConfig = { binId, apiKey };
     localStorage.setItem('propda_jsonbin_config', JSON.stringify(appState.jsonBinConfig));
     document.getElementById('configModal').style.display = "none";
-    loadFromJsonBin(); // tenta di caricare
+    loadFromJsonBin();
     syncWithJsonBinBackground();
 }
 
-// Carica config da localStorage
 function loadJsonBinConfig() {
     const stored = localStorage.getItem('propda_jsonbin_config');
     if (stored) {
         try {
             appState.jsonBinConfig = JSON.parse(stored);
             if (appState.jsonBinConfig.binId && appState.jsonBinConfig.apiKey) {
-                jsonBinStatusSpan.innerText = "configurato, sincronizzo...";
+                jsonBinStatusSpan.innerText = "configured, syncing...";
                 loadFromJsonBin();
             }
         } catch(e) {}
@@ -390,7 +402,7 @@ function loadJsonBinConfig() {
 
 // Event listeners
 zoneSelect.addEventListener('change', updateSessionZone);
-resetAccessBtn.addEventListener('click', resetAccess);
+resetAccessBtn.addEventListener('click', requestNewAccess);
 scanBtn.addEventListener('click', startScan);
 saveBtn.addEventListener('click', saveInspection);
 emergencyBtn.addEventListener('click', reportEmergency);
@@ -403,12 +415,10 @@ document.querySelector('#configModal .close')?.addEventListener('click', () => {
 });
 document.getElementById('saveJsonBinConfig')?.addEventListener('click', saveJsonBinConfig);
 
-// Inizializzazione
+// Initialization
 function init() {
     loadLogsFromLocalStorage();
     loadJsonBinConfig();
     updateSessionZone();
-    // Eventuali altri setup
 }
-
 init();
