@@ -1,5 +1,5 @@
 // ======================== CONFIGURATION ========================
-const BIN_ID = "69de75ce856a6821893343d9";               // Your Bin ID
+const BIN_ID = "69df665d36566621a8b694e5";               // Your Bin ID
 const MASTER_KEY = "$2a$10$RvtAYcVttTgFZj1lk9gy7uG4jjzKPztlQOwZ10zcS1eKOb0fACdO2";          // Your public Master Key
 const READ_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}/latest`;
 // ===============================================================
