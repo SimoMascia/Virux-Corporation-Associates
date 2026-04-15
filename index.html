@@ -9,7 +9,6 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header con stile Foundation -->
         <header class="contract-header">
             <div class="logo-area">
                 <div class="vc-logo">VC&A</div>
@@ -23,129 +22,137 @@
             </div>
         </header>
 
-        <!-- Barra di sessione -->
         <div class="session-bar">
             <div class="session-info">
-                <span>📍 Zona corrente: <strong id="currentZone">Non selezionata</strong></span>
-                <span>🖥️ Terminali in questa sessione: <strong id="terminalCount">0</strong></span>
-                <span>⚠️ Limite MCZ/HCZ: <strong>2</strong> max</span>
+                <span>📍 Current zone: <strong id="currentZone">Not selected</strong></span>
+                <span>🖥️ Terminals in this session: <strong id="terminalCount">0</strong></span>
+                <span>⚠️ MCZ/HCZ limit: <strong>2</strong> max</span>
             </div>
         </div>
 
         <div class="main-grid">
-            <!-- COLONNA SINISTRA: Aggiungi terminale -->
+            <!-- LEFT COLUMN: Add terminal to session -->
             <div class="inspection-panel">
                 <div class="panel-title">
-                    <span>📋 Aggiungi terminale alla sessione</span>
-                    <span class="compliance-badge">Clausola 10</span>
+                    <span>📋 Add terminal to session</span>
+                    <span class="compliance-badge">Clause 10</span>
                 </div>
 
-                <!-- Authorization Officer (con pulsante reset) -->
+                <!-- Authorization Officer (with reset button) -->
                 <div class="form-group">
-                    <label>📝 Autorizzazione ufficiale (per MCZ/HCZ)</label>
+                    <label>📝 Authorization Officer (for MCZ/HCZ access)</label>
                     <div style="display: flex; gap: 8px;">
-                        <input type="text" id="authOfficer" placeholder="Nome dell'ufficiale autorizzante" style="flex:1">
-                        <button id="resetCounterBtn" class="btn-icon" title="Resetta contatore terminali">⟳</button>
+                        <input type="text" id="authOfficer" placeholder="Authorizing officer name" style="flex:1">
+                        <button id="resetCounterBtn" class="btn-icon" title="Reset terminal counter for this access">⟳</button>
                     </div>
-                    <small class="hint">Resetta il contatore quando cambi ufficiale. Obbligatorio per MCZ/HCZ.</small>
+                    <small class="hint">Resets the terminal counter when changed. Required for MCZ/HCZ.</small>
                 </div>
 
-                <!-- Zona di ispezione -->
+                <!-- Inspection zone (expanded) -->
                 <div class="form-group">
-                    <label>Zona di ispezione *</label>
+                    <label>Inspection zone *</label>
                     <select id="zoneSelect">
-                        <option value="">-- Seleziona zona --</option>
+                        <option value="">-- Select zone --</option>
                         <option value="LCZ">LCZ - Light Containment Zone</option>
                         <option value="MCZ">MCZ - Medium Containment Zone</option>
                         <option value="HCZ">HCZ - Heavy Containment Zone</option>
+                        <option value="RC">RC - Research Complex</option>
+                        <option value="CR">CR - Control Room</option>
+                        <option value="MD">MD - Medical Department</option>
+                        <option value="BHZ">BHZ - Biohazard Zone</option>
+                        <option value="OTHER">Other (specify)</option>
                     </select>
                 </div>
 
-                <!-- SCP e Terminal ID -->
+                <!-- Custom zone description (only for OTHER) -->
+                <div class="form-group" id="otherZoneGroup" style="display: none;">
+                    <label>Zone description *</label>
+                    <input type="text" id="otherZoneDesc" placeholder="e.g., Server Room, Garage, etc.">
+                </div>
+
+                <!-- SCP and Terminal ID -->
                 <div class="form-row">
                     <div class="form-group">
                         <label>SCP / Room ID *</label>
-                        <input type="text" id="scpId" placeholder="es. SCP-079">
+                        <input type="text" id="scpId" placeholder="e.g. SCP-079">
                     </div>
                     <div class="form-group">
                         <label>Terminal ID *</label>
-                        <input type="text" id="terminalId" placeholder="es. TERM-01">
+                        <input type="text" id="terminalId" placeholder="e.g. TERM-01">
                     </div>
                 </div>
 
-                <!-- Supervisore Foundation (obbligatorio) -->
+                <!-- Foundation supervisor (mandatory) -->
                 <div class="form-group highlight">
-                    <label>👮 Supervisore Foundation presente *</label>
-                    <input type="text" id="supervisor" placeholder="Nome completo / badge">
-                    <small>Obbligatorio (Clausola 10.B)</small>
+                    <label>👮 Foundation Supervisor present *</label>
+                    <input type="text" id="supervisor" placeholder="Full name / ID badge">
+                    <small>Mandatory (Clause 10.B)</small>
                 </div>
 
-                <!-- Pulsante scan -->
+                <!-- Scan button -->
                 <div class="scan-area">
-                    <button id="scanBtn" class="btn-primary">🔍 AVVIA SCAN (10 secondi)</button>
+                    <button id="scanBtn" class="btn-primary">🔍 START SCAN (10 seconds)</button>
                     <div class="scan-progress" id="scanProgress" style="display: none;">
                         <div class="progress-bar"></div>
-                        <span class="progress-text">Scansione in corso... 0%</span>
+                        <span class="progress-text">Scanning... 0%</span>
                     </div>
                 </div>
 
-                <!-- Risultati scan (dopo scan) -->
+                <!-- Scan results (appears after scan) -->
                 <div class="results-area" id="resultsArea" style="display: none;">
-                    <label>Esito scansione</label>
+                    <label>Scan result</label>
                     <div class="result-options">
-                        <label><input type="radio" name="scanResult" value="CLEAR"> ✅ Pulito (nessuna anomalia)</label>
-                        <label><input type="radio" name="scanResult" value="ANOMALY"> ⚠️ Anomalia rilevata</label>
+                        <label><input type="radio" name="scanResult" value="CLEAR"> ✅ Clear (no anomaly)</label>
+                        <label><input type="radio" name="scanResult" value="ANOMALY"> ⚠️ Anomaly detected</label>
                     </div>
                     <div class="form-group" id="anomalyNoteGroup" style="display: none;">
-                        <label>Descrizione anomalia</label>
-                        <textarea id="anomalyNote" rows="2" placeholder="Descrivi l'anomalia riscontrata"></textarea>
+                        <label>Anomaly description</label>
+                        <textarea id="anomalyNote" rows="2" placeholder="Describe the anomaly"></textarea>
                     </div>
                 </div>
 
-                <!-- Pulsanti post-scan -->
+                <!-- Post-scan actions -->
                 <div id="postScanActions" style="display: none; margin-top: 16px; gap: 12px;">
-                    <button id="addTerminalBtn" class="btn-secondary" style="flex:1;">➕ Aggiungi alla sessione</button>
-                    <button id="saveSingleTerminalBtn" class="btn-success" style="flex:1;">💾 Salva come log singolo</button>
+                    <button id="addTerminalBtn" class="btn-secondary" style="flex:1;">➕ Add to session</button>
+                    <button id="saveSingleTerminalBtn" class="btn-success" style="flex:1;">💾 Save as single log</button>
                 </div>
 
-                <!-- Pulsante salvataggio sessione -->
-                <button id="saveSessionBtn" class="btn-success" style="display: none; margin-top: 16px;">💾 Salva sessione (X terminali)</button>
+                <!-- Batch save button -->
+                <button id="saveSessionBtn" class="btn-success" style="display: none; margin-top: 16px;">💾 Save session (X terminals)</button>
             </div>
 
-            <!-- COLONNA DESTRA: Lista terminali in sessione e log passati -->
+            <!-- RIGHT COLUMN: Pending terminals and logs -->
             <div class="right-panel">
                 <div class="queue-card">
-                    <div class="panel-title">📦 Terminali in questa sessione</div>
+                    <div class="panel-title">📦 Terminals in current session</div>
                     <div id="sessionTerminalsList" class="queue-list">
-                        <div class="empty-queue">Nessun terminale aggiunto.</div>
+                        <div class="empty-queue">No terminals added yet.</div>
                     </div>
-                    <button id="clearSessionBtn" class="btn-outline-warning">🗑️ Svuota sessione</button>
+                    <button id="clearSessionBtn" class="btn-outline-warning">🗑️ Clear session</button>
                 </div>
 
-                <!-- Log passati (per RAISA) -->
                 <div class="log-card">
                     <div class="panel-title">
-                        <span>📜 Log delle ispezioni (per RAISA)</span>
-                        <button id="exportLogsBtn" class="btn-icon" title="Esporta JSON">⬇️</button>
+                        <span>📜 Inspection logs (for RAISA)</span>
+                        <button id="exportLogsBtn" class="btn-icon" title="Export JSON">⬇️</button>
                     </div>
-                    <div id="logList" class="log-list">Nessun log ancora.</div>
+                    <div id="logList" class="log-list">No logs yet.</div>
                     <div class="log-actions">
-                        <button id="clearLogsBtn" class="btn-outline-warning">Cancella log locali</button>
-                        <button id="syncWithJsonBin" class="btn-outline">Sincronizza con JSONBin</button>
+                        <button id="clearLogsBtn" class="btn-outline-warning">Clear local logs</button>
+                        <button id="syncWithJsonBin" class="btn-outline">Sync with JSONBin</button>
                     </div>
                 </div>
 
-                <!-- Guida rapida (solo ispezione hardware) -->
                 <details class="procedure-guide">
-                    <summary>📚 Procedura rapida di ispezione</summary>
+                    <summary>📚 Quick inspection procedure</summary>
                     <div class="guide-content">
-                        <h4>🔧 Ispezione hardware (LCZ/MCZ/HCZ)</h4>
+                        <h4>🔧 Hardware inspection (LCZ/MCZ/HCZ/RC/CR/MD/BHZ)</h4>
                         <ol>
-                            <li>Identificare tutte le CC con apparecchiature elettroniche</li>
-                            <li>Entrare nella cella e preparare lo scanner</li>
-                            <li>Eseguire la scansione completa (10 secondi)</li>
-                            <li>Documentare i risultati su clipboard</li>
-                            <li>Accendere il sistema e verificare le specifiche</li>
+                            <li>Identify all CCs with electronic equipment</li>
+                            <li>Enter the cell and prepare the scanner</li>
+                            <li>Run full scan (10 seconds)</li>
+                            <li>Document results on clipboard</li>
+                            <li>Power on system and verify specifications</li>
                         </ol>
                     </div>
                 </details>
@@ -155,23 +162,23 @@
         <footer>
             <div class="api-status">
                 <span>🔗 JSONBin.io: </span>
-                <span id="jsonBinStatus">non configurato</span>
-                <button id="configJsonBinBtn" class="btn-link">Configura</button>
+                <span id="jsonBinStatus">not configured</span>
+                <button id="configJsonBinBtn" class="btn-link">Configure</button>
             </div>
-            <div class="compliance-note">Conforme al contratto FAD-VC&A-C-220326 • Nessun dato scritto sui terminali Foundation • Log disponibili per RAISA su richiesta</div>
+            <div class="compliance-note">Compliant with contract FAD-VC&A-C-220326 • No data written on Foundation terminals • Logs available for RAISA upon request</div>
         </footer>
     </div>
 
-    <!-- Modale configurazione JSONBin -->
+    <!-- JSONBin configuration modal -->
     <div id="configModal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close">&times;</span>
-            <h3>Configurazione JSONBin.io</h3>
+            <h3>JSONBin.io Configuration</h3>
             <label>Bin ID:</label>
             <input type="text" id="binIdInput">
             <label>Access Key (X-Access-Key):</label>
             <input type="password" id="apiKeyInput">
-            <button id="saveJsonBinConfig" class="btn-primary">Salva</button>
+            <button id="saveJsonBinConfig" class="btn-primary">Save</button>
         </div>
     </div>
 
