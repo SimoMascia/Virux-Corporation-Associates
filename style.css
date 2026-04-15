@@ -1,4 +1,4 @@
-/* Reset e base */
+/* Reset and base */
 * {
     margin: 0;
     padding: 0;
@@ -23,7 +23,7 @@ body {
     border: 1px solid #2a2e3a;
 }
 
-/* Header contratto */
+/* Header */
 .contract-header {
     background: #07090e;
     padding: 16px 24px;
@@ -96,6 +96,22 @@ body {
     display: flex;
     gap: 24px;
     flex-wrap: wrap;
+    align-items: center;
+}
+
+.access-reset-area {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+#authOfficerInput {
+    background: #0c0f16;
+    border: 1px solid #2a2e3a;
+    padding: 6px 12px;
+    border-radius: 8px;
+    color: white;
+    font-size: 0.8rem;
 }
 
 .btn-secondary {
@@ -118,6 +134,39 @@ body {
     cursor: not-allowed;
 }
 
+/* Tooltip */
+.tooltip {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+    font-size: 1rem;
+    margin-left: 8px;
+}
+
+.tooltip .tooltiptext {
+    visibility: hidden;
+    width: 280px;
+    background-color: #2c3e5c;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 6px 10px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -140px;
+    font-size: 0.7rem;
+    font-weight: normal;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
 /* Main grid */
 .main-grid {
     display: grid;
@@ -132,7 +181,7 @@ body {
     }
 }
 
-/* Pannello ispezione */
+/* Inspection panel */
 .inspection-panel {
     padding: 24px;
     border-right: 1px solid #1e212a;
