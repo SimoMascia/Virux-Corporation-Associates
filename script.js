@@ -1,7 +1,7 @@
 // ========================
 // PROPDA INSPECTION ASSISTANT
 // Compliant with contract FAD-VC&A-C-220326
-// UPDATED: Support for X-Access-Key
+// With queue system for multiple terminals per access
 // ========================
 
 // App state
@@ -13,12 +13,14 @@ let appState = {
     currentScan: {
         inProgress: false,
         result: null,
-        anomalyText: ""
+        anomalyText: "",
+        lastScanData: null   // stores the last completed scan data (before queue/save)
     },
+    pendingQueue: [],        // array of inspection objects ready to be saved
     logs: [],
     jsonBinConfig: {
         binId: "",
-        accessKey: ""      // <-- Changed: Now stores Access Key
+        accessKey: ""
     }
 };
 
@@ -29,7 +31,10 @@ const terminalInput = document.getElementById('terminalId');
 const supervisorInput = document.getElementById('supervisor');
 const authOfficerInput = document.getElementById('authOfficer');
 const scanBtn = document.getElementById('scanBtn');
-const saveBtn = document.getElementById('saveInspectionBtn');
+const saveSingleBtn = document.getElementById('saveSingleBtn');
+const addToQueueBtn = document.getElementById('addToQueueBtn');
+const saveBatchBtn = document.getElementById('saveBatchBtn');
+const clearQueueBtn = document.getElementById('clearQueueBtn');
 const resetAccessBtn = document.getElementById('requestNewAccessBtn');
 const accessResetArea = document.getElementById('accessResetArea');
 const currentZoneSpan = document.getElementById('currentZone');
@@ -38,6 +43,8 @@ const scanProgressDiv = document.getElementById('scanProgress');
 const resultsArea = document.getElementById('resultsArea');
 const anomalyNoteGroup = document.getElementById('anomalyNoteGroup');
 const anomalyNote = document.getElementById('anomalyNote');
+const postScanActions = document.getElementById('postScanActions');
+const queueListDiv = document.getElementById('queueList');
 const logListDiv = document.getElementById('logList');
 const exportLogsBtn = document.getElementById('exportLogsBtn');
 const clearLogsBtn = document.getElementById('clearLogsBtn');
@@ -84,8 +91,133 @@ function renderLogs() {
     }).join('');
 }
 
-// Add inspection to logs
-function addInspectionLog(inspectionData) {
+// Render queue list
+function renderQueue() {
+    if (!queueListDiv) return;
+    if (appState.pendingQueue.length === 0) {
+        queueListDiv.innerHTML = '<div class="empty-queue">No pending inspections. Add terminals after scan.</div>';
+        saveBatchBtn.style.display = 'none';
+        return;
+    }
+    saveBatchBtn.style.display = 'block';
+    saveBatchBtn.innerHTML = `💾 Save all logs (${appState.pendingQueue.length} in queue)`;
+    queueListDiv.innerHTML = appState.pendingQueue.map((item, idx) => {
+        return `<div class="queue-item">
+            <span><strong>${item.scpId}</strong> | ${item.terminalId} | ${item.scanResult}</span>
+            <button class="remove-queue-item" data-index="${idx}">✖</button>
+        </div>`;
+    }).join('');
+    // Add event listeners to remove buttons
+    document.querySelectorAll('.remove-queue-item').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const index = parseInt(btn.getAttribute('data-index'));
+            if (!isNaN(index)) {
+                appState.pendingQueue.splice(index, 1);
+                renderQueue();
+                // Also reset terminal counter display? No, we only count when saved.
+                // But we need to update the terminal count display to reflect remaining potential?
+                // Actually, the counter increments only on final save. So no change here.
+            }
+        });
+    });
+}
+
+// Add current inspection to queue (after scan)
+function addCurrentToQueue() {
+    if (!appState.currentScan.lastScanData) {
+        alert("No scan data available. Please run a scan first.");
+        return;
+    }
+    const scanData = appState.currentScan.lastScanData;
+    // Check if adding would exceed MCZ/HCZ limit (but we check only on final save)
+    // However, we can warn if queue length + existing terminals already saved >= 2 in MCZ/HCZ?
+    // Better to allow queue but block save if limit exceeded.
+    appState.pendingQueue.push({ ...scanData });
+    renderQueue();
+    // Reset scan UI to allow new terminal
+    resetAfterAddToQueue();
+}
+
+function resetAfterAddToQueue() {
+    // Clear terminal-specific fields
+    scpInput.value = '';
+    terminalInput.value = '';
+    // Uncheck hardware checkboxes
+    document.querySelectorAll('.hw-check').forEach(cb => cb.checked = false);
+    // Hide results area and post-scan buttons
+    resultsArea.style.display = 'none';
+    postScanActions.style.display = 'none';
+    // Reset scan result radios
+    document.querySelectorAll('input[name="scanResult"]').forEach(radio => radio.checked = false);
+    anomalyNoteGroup.style.display = 'none';
+    anomalyNote.value = '';
+    // Enable scan button
+    scanBtn.disabled = false;
+    appState.currentScan.lastScanData = null;
+}
+
+// Save a single inspection immediately (bypass queue)
+function saveSingleInspection() {
+    if (!appState.currentScan.lastScanData) {
+        alert("No scan data available. Run a scan first.");
+        return;
+    }
+    const inspection = appState.currentScan.lastScanData;
+    // Check limit for MCZ/HCZ
+    if ((appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') && appState.session.terminalsInspected >= 2) {
+        alert("Terminal limit reached for this access. Cannot save more terminals. Request new access.");
+        return;
+    }
+    performSaveInspection(inspection);
+    // Increment counter after successful save
+    if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
+        appState.session.terminalsInspected++;
+        terminalCountSpan.innerText = appState.session.terminalsInspected;
+        if (appState.session.terminalsInspected >= 2) {
+            scanBtn.disabled = true;
+            alert("Limit of 2 terminals for this access reached. To inspect more, request new access with authorization officer.");
+        }
+    }
+    // Reset UI for next inspection
+    resetAfterAddToQueue();
+}
+
+// Save all items in queue (batch)
+function saveBatchInspections() {
+    if (appState.pendingQueue.length === 0) {
+        alert("No pending inspections in queue.");
+        return;
+    }
+    const zone = appState.session.zone;
+    const isMczHcz = (zone === 'MCZ' || zone === 'HCZ');
+    const currentCount = appState.session.terminalsInspected;
+    const queueCount = appState.pendingQueue.length;
+    if (isMczHcz && (currentCount + queueCount) > 2) {
+        alert(`Cannot save ${queueCount} terminal(s). You have already inspected ${currentCount} terminal(s) in this access, and the maximum is 2. Please remove some items from queue or request a new access.`);
+        return;
+    }
+    // Save each item in queue
+    for (const inspection of appState.pendingQueue) {
+        performSaveInspection(inspection);
+    }
+    // Update terminal counter
+    if (isMczHcz) {
+        appState.session.terminalsInspected += queueCount;
+        terminalCountSpan.innerText = appState.session.terminalsInspected;
+        if (appState.session.terminalsInspected >= 2) {
+            scanBtn.disabled = true;
+            alert("Limit of 2 terminals for this access reached. To inspect more, request new access with authorization officer.");
+        }
+    }
+    // Clear queue
+    appState.pendingQueue = [];
+    renderQueue();
+    // Reset UI
+    resetAfterAddToQueue();
+}
+
+// Core save function (adds log to storage)
+function performSaveInspection(inspectionData) {
     const newLog = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
@@ -98,16 +230,15 @@ function addInspectionLog(inspectionData) {
         hardwareChecked: inspectionData.hardwareChecked,
         scanResult: inspectionData.scanResult,
         anomalyNote: inspectionData.anomalyNote || null,
-        sessionTerminalCount: appState.session.terminalsInspected
+        sessionTerminalCount: appState.session.terminalsInspected + 1 // will be updated after
     };
     appState.logs.push(newLog);
     saveLogsToLocalStorage();
     renderLogs();
     syncWithJsonBinBackground();
-    return newLog;
 }
 
-// --- UPDATED: Sync with JSONBin.io using X-Access-Key ---
+// Sync with JSONBin.io
 async function syncWithJsonBinBackground() {
     const { binId, accessKey } = appState.jsonBinConfig;
     if (!binId || !accessKey) {
@@ -117,27 +248,19 @@ async function syncWithJsonBinBackground() {
     }
     try {
         jsonBinStatusSpan.innerText = "syncing...";
-        // Prepare headers for the PUT request to update the bin
-        const headers = {
-            'Content-Type': 'application/json',
-            'X-Access-Key': accessKey
-        };
-        // Note: For updating a private bin, the API sometimes requires both keys.
-        // We are using only X-Access-Key. If you get a 403 error, you may need to
-        // include 'X-Master-Key' as well, but let's try with just X-Access-Key first.
-        
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
             method: 'PUT',
-            headers: headers,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Access-Key': accessKey
+            },
             body: JSON.stringify({ logs: appState.logs, lastUpdate: new Date().toISOString() })
         });
         if (response.ok) {
             jsonBinStatusSpan.innerText = "connected ✅";
             jsonBinStatusSpan.className = "status-online";
         } else {
-            const errorText = await response.text();
-            console.error("Sync failed with status:", response.status, errorText);
-            throw new Error(`API error: ${response.status}`);
+            throw new Error("API error");
         }
     } catch (err) {
         console.error("JSONBin sync failed", err);
@@ -146,16 +269,12 @@ async function syncWithJsonBinBackground() {
     }
 }
 
-// --- UPDATED: Load from JSONBin.io using X-Access-Key ---
 async function loadFromJsonBin() {
     const { binId, accessKey } = appState.jsonBinConfig;
     if (!binId || !accessKey) return;
     try {
-        const headers = {
-            'X-Access-Key': accessKey
-        };
         const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-            headers: headers
+            headers: { 'X-Access-Key': accessKey }
         });
         if (response.ok) {
             const data = await response.json();
@@ -165,16 +284,12 @@ async function loadFromJsonBin() {
                 renderLogs();
                 jsonBinStatusSpan.innerText = "connected ✅";
                 jsonBinStatusSpan.className = "status-online";
-            } else {
-                console.warn("No logs found in the bin record.");
             }
-        } else {
-            console.warn("Failed to load from JSONBin, status:", response.status);
         }
     } catch(e) { console.warn("JSONBin load failed", e); }
 }
 
-// Zone change handler (Clause 10.A)
+// Zone change handler
 function updateSessionZone() {
     const newZone = zoneSelect.value;
     if (newZone === "") return;
@@ -189,6 +304,9 @@ function updateSessionZone() {
             accessResetArea.style.display = "none";
         }
         appState.session.zone = newZone;
+        // Clear pending queue when zone changes (safety)
+        appState.pendingQueue = [];
+        renderQueue();
     } else if (!appState.session.zone) {
         appState.session.zone = newZone;
         if (newZone === 'MCZ' || newZone === 'HCZ') {
@@ -204,14 +322,12 @@ function updateSessionZone() {
     if ((newZone === 'MCZ' || newZone === 'HCZ') && appState.session.terminalsInspected >= 2) {
         alert("WARNING: You have reached the limit of 2 terminals inspected in this zone. Request new access with authorization officer (Clause 10.A).");
         scanBtn.disabled = true;
-        saveBtn.disabled = true;
     } else {
         scanBtn.disabled = false;
-        saveBtn.disabled = true;
     }
 }
 
-// Request new access: prompt for authorization officer name, store in field, reset counter
+// Request new access: prompt for authorization officer
 function requestNewAccess() {
     if (appState.session.zone !== 'MCZ' && appState.session.zone !== 'HCZ') {
         alert("This function is only for MCZ/HCZ.");
@@ -222,18 +338,15 @@ function requestNewAccess() {
         alert("Authorization Officer name is required to request new access (per contract).");
         return;
     }
-    // Set the auth officer field
     authOfficerInput.value = officerName;
-    // Reset terminal counter
     appState.session.terminalsInspected = 0;
     terminalCountSpan.innerText = "0";
     scanBtn.disabled = false;
-    saveBtn.disabled = true;
     alert(`New access authorized by ${officerName}. You may inspect up to 2 terminals in this zone.`);
 }
 
 // 10-second scan simulation
-let scanTimer = null;
+let scanInterval = null;
 function startScan() {
     if (!zoneSelect.value) { alert("Select an inspection zone."); return; }
     if (!scpInput.value.trim()) { alert("Enter SCP / Room ID."); return; }
@@ -249,7 +362,7 @@ function startScan() {
     scanBtn.disabled = true;
     scanProgressDiv.style.display = "flex";
     resultsArea.style.display = "none";
-    saveBtn.disabled = true;
+    postScanActions.style.display = "none";
     
     let progress = 0;
     const progressBar = document.querySelector('.progress-bar');
@@ -263,16 +376,44 @@ function startScan() {
             appState.currentScan.inProgress = false;
             scanProgressDiv.style.display = "none";
             resultsArea.style.display = "block";
+            postScanActions.style.display = "flex";
             document.querySelectorAll('input[name="scanResult"]').forEach(radio => radio.checked = false);
             anomalyNoteGroup.style.display = "none";
             anomalyNote.value = "";
-            saveBtn.disabled = false;
             scanBtn.disabled = false;
+            // Store current inspection data (without saving yet)
+            const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
+            appState.currentScan.lastScanData = {
+                zone: zoneSelect.value,
+                scpId: scpInput.value.trim(),
+                terminalId: terminalInput.value.trim(),
+                supervisor: supervisorInput.value.trim(),
+                authOfficer: authOfficerInput.value.trim() || null,
+                hardwareChecked: hardwareChecked,
+                scanResult: null, // will be set when user selects
+                anomalyNote: null
+            };
+            // Add listener to update lastScanData when result changes
+            const radios = document.querySelectorAll('input[name="scanResult"]');
+            const updateResult = () => {
+                const selected = document.querySelector('input[name="scanResult"]:checked');
+                if (selected && appState.currentScan.lastScanData) {
+                    appState.currentScan.lastScanData.scanResult = selected.value;
+                    appState.currentScan.lastScanData.anomalyNote = (selected.value === 'ANOMALY') ? anomalyNote.value.trim() : null;
+                }
+            };
+            radios.forEach(r => r.removeEventListener('change', updateResult));
+            radios.forEach(r => r.addEventListener('change', updateResult));
+            anomalyNote.addEventListener('input', () => {
+                if (appState.currentScan.lastScanData && appState.currentScan.lastScanData.scanResult === 'ANOMALY') {
+                    appState.currentScan.lastScanData.anomalyNote = anomalyNote.value.trim();
+                }
+            });
         }
     }, 1000);
 }
 
-// Radio change for anomaly
+// Radio change for anomaly (visual only)
 document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         if (e.target.value === 'ANOMALY') {
@@ -283,44 +424,7 @@ document.querySelectorAll('input[name="scanResult"]').forEach(radio => {
     });
 });
 
-// Save inspection
-function saveInspection() {
-    if (!zoneSelect.value || !scpInput.value || !terminalInput.value || !supervisorInput.value) {
-        alert("Fill all mandatory fields.");
-        return;
-    }
-    const scanResultElem = document.querySelector('input[name="scanResult"]:checked');
-    if (!scanResultElem) {
-        alert("Select scan result (Clear / Anomaly).");
-        return;
-    }
-    const hardwareChecked = Array.from(document.querySelectorAll('.hw-check:checked')).map(cb => cb.value);
-    const inspection = {
-        zone: zoneSelect.value,
-        scpId: scpInput.value.trim(),
-        terminalId: terminalInput.value.trim(),
-        supervisor: supervisorInput.value.trim(),
-        authOfficer: authOfficerInput.value.trim() || null,
-        hardwareChecked: hardwareChecked,
-        scanResult: scanResultElem.value,
-        anomalyNote: (scanResultElem.value === 'ANOMALY') ? anomalyNote.value.trim() : null
-    };
-    addInspectionLog(inspection);
-    
-    if (appState.session.zone === 'MCZ' || appState.session.zone === 'HCZ') {
-        appState.session.terminalsInspected++;
-        terminalCountSpan.innerText = appState.session.terminalsInspected;
-        if (appState.session.terminalsInspected >= 2) {
-            alert("Limit of 2 terminals for this access reached. To inspect more, request new access with authorization officer.");
-            scanBtn.disabled = true;
-            saveBtn.disabled = true;
-        }
-    }
-    resultsArea.style.display = "none";
-    saveBtn.disabled = true;
-}
-
-// PROP Emergency (Clause 11)
+// Emergency PROP
 function reportEmergency() {
     const supervisor = emergencySupervisor.value.trim();
     if (!supervisor) {
@@ -376,15 +480,20 @@ function clearLocalLogs() {
     }
 }
 
-// --- UPDATED: JSONBin configuration modal for Access Key ---
+function clearQueue() {
+    if (confirm("Clear all pending inspections from queue?")) {
+        appState.pendingQueue = [];
+        renderQueue();
+        resetAfterAddToQueue();
+    }
+}
+
+// JSONBin configuration
 function showConfigModal() {
     const modal = document.getElementById('configModal');
     modal.style.display = "flex";
     document.getElementById('binIdInput').value = appState.jsonBinConfig.binId || "";
     document.getElementById('apiKeyInput').value = appState.jsonBinConfig.accessKey || "";
-    // Change label to be more specific
-    const label = document.querySelector('#configModal label[for="apiKeyInput"]');
-    if (label) label.textContent = "Access Key (X-Access-Key):";
 }
 function saveJsonBinConfig() {
     const binId = document.getElementById('binIdInput').value.trim();
@@ -405,7 +514,6 @@ function loadJsonBinConfig() {
     if (stored) {
         try {
             const config = JSON.parse(stored);
-            // For backward compatibility: if old config had apiKey, migrate to accessKey
             if (config.apiKey && !config.accessKey) {
                 appState.jsonBinConfig = { binId: config.binId, accessKey: config.apiKey };
             } else {
@@ -423,7 +531,10 @@ function loadJsonBinConfig() {
 zoneSelect.addEventListener('change', updateSessionZone);
 resetAccessBtn.addEventListener('click', requestNewAccess);
 scanBtn.addEventListener('click', startScan);
-saveBtn.addEventListener('click', saveInspection);
+saveSingleBtn.addEventListener('click', saveSingleInspection);
+addToQueueBtn.addEventListener('click', addCurrentToQueue);
+saveBatchBtn.addEventListener('click', saveBatchInspections);
+clearQueueBtn.addEventListener('click', clearQueue);
 emergencyBtn.addEventListener('click', reportEmergency);
 exportLogsBtn.addEventListener('click', exportLogs);
 clearLogsBtn.addEventListener('click', clearLocalLogs);
@@ -439,5 +550,6 @@ function init() {
     loadLogsFromLocalStorage();
     loadJsonBinConfig();
     updateSessionZone();
+    renderQueue();
 }
 init();
