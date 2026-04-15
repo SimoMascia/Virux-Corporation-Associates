@@ -286,8 +286,6 @@ input:focus, select:focus, textarea:focus {
     padding: 12px;
     border-radius: 40px;
     font-weight: bold;
-    width: 100%;
-    margin-top: 16px;
     cursor: pointer;
     transition: 0.2s;
 }
@@ -310,11 +308,45 @@ input:focus, select:focus, textarea:focus {
     gap: 24px;
 }
 
-.emergency-card, .log-card {
+.queue-card, .emergency-card, .log-card {
     background: #0f1119;
     border-radius: 18px;
     padding: 18px;
     border: 1px solid #232734;
+}
+
+.queue-list {
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 8px 0;
+    font-size: 0.75rem;
+}
+
+.queue-item {
+    background: #0a0c12;
+    margin-bottom: 6px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border-left: 3px solid #f4a261;
+    font-family: monospace;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.queue-item .remove-queue-item {
+    background: none;
+    border: none;
+    color: #e76f51;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0 4px;
+}
+
+.empty-queue {
+    color: #6c7a8a;
+    text-align: center;
+    padding: 12px;
 }
 
 .btn-danger {
@@ -389,7 +421,6 @@ input:focus, select:focus, textarea:focus {
     cursor: pointer;
 }
 
-/* ========== FIXED: Quick procedure guide alignment ========== */
 .procedure-guide {
     background: #0a0c12;
     border-radius: 14px;
@@ -423,7 +454,7 @@ input:focus, select:focus, textarea:focus {
 
 .guide-content ol,
 .guide-content ul {
-    padding-left: 1.5rem !important;  /* solo un piccolo rientro per la lista, ma allineato a sinistra */
+    padding-left: 1.5rem !important;
     margin: 6px 0;
 }
 
@@ -434,7 +465,6 @@ input:focus, select:focus, textarea:focus {
 .guide-content p {
     margin: 8px 0;
 }
-/* ======================================================== */
 
 footer {
     padding: 16px 24px;
